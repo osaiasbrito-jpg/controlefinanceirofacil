@@ -1,0 +1,6 @@
+{
+  "name": "Meu Controle Financeiro",
+  "description": "Sistema completo e seguro de controle financeiro pessoal e familiar com autenticação Google, controle de receitas, despesas, cartões de crédito, compras parceladas automáticas, relatórios e backup.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

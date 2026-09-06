@@ -1,0 +1,84 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function for authentication
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // System Settings & Payment Gateways
+    match /systemSettings/{settingId} {
+      allow read, write: if true;
+    }
+
+    // Access Requests
+    match /accessRequests/{requestId} {
+      allow read, write: if true;
+    }
+
+    // Users profile
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
+    // Admins marker collection
+    match /admins/{adminId} {
+      allow read, write: if true;
+    }
+    
+    // User Settings
+    match /userSettings/{userId} {
+      allow read, write: if true;
+    }
+
+    // Payments
+    match /payments/{paymentId} {
+      allow read, write: if true;
+    }
+    
+    // Salaries
+    match /salaries/{salaryId} {
+      allow read, write: if true;
+    }
+    
+    // Incomes (Renda Extra)
+    match /incomes/{incomeId} {
+      allow read, write: if true;
+    }
+    
+    // Expenses
+    match /expenses/{expenseId} {
+      allow read, write: if true;
+    }
+    
+    // Installment purchases
+    match /installmentPurchases/{purchaseId} {
+      allow read, write: if true;
+    }
+    
+    // Credit cards
+    match /creditCards/{cardId} {
+      allow read, write: if true;
+    }
+    
+    // Categories
+    match /categories/{categoryId} {
+      allow read, write: if true;
+    }
+
+    // Budgets
+    match /budgets/{budgetId} {
+      allow read, write: if true;
+    }
+    
+    // Backups
+    match /backups/{backupId} {
+      allow read, write: if true;
+    }
+
+    // Fallback rule for any collection
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

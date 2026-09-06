@@ -1,0 +1,203 @@
+{
+  "entities": {
+    "users": {
+      "title": "Users",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "email"]
+    },
+    "salaries": {
+      "title": "Salaries",
+      "description": "Monthly salary registrations",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "amount": { "type": "number" },
+        "referenceMonth": { "type": "string" },
+        "payDate": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["RECEIVED", "PENDING"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "amount", "referenceMonth", "status"]
+    },
+    "incomes": {
+      "title": "Incomes",
+      "description": "Extra income entries",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "description": { "type": "string" },
+        "amount": { "type": "number" },
+        "referenceMonth": { "type": "string" },
+        "date": { "type": "string" },
+        "origin": { "type": "string" },
+        "status": { "type": "string", "enum": ["RECEIVED", "PENDING"] },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "description", "amount", "referenceMonth", "status"]
+    },
+    "expenses": {
+      "title": "Expenses",
+      "description": "Expense records including single and installment items",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "description": { "type": "string" },
+        "amount": { "type": "number" },
+        "date": { "type": "string" },
+        "referenceMonth": { "type": "string" },
+        "categoryId": { "type": "string" },
+        "categoryName": { "type": "string" },
+        "paymentMethod": { "type": "string", "enum": ["DINHEIRO", "PIX", "BOLETO", "CARTAO_DEBITO", "CARTAO_CREDITO"] },
+        "cardId": { "type": "string" },
+        "isInstallment": { "type": "boolean" },
+        "installmentPurchaseId": { "type": "string" },
+        "installmentNumber": { "type": "number" },
+        "totalInstallments": { "type": "number" },
+        "status": { "type": "string", "enum": ["PAGA", "PENDENTE"] },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "description", "amount", "date", "referenceMonth", "status", "paymentMethod"]
+    },
+    "creditCards": {
+      "title": "Credit Cards",
+      "description": "Registered credit cards with limits",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "bank": { "type": "string" },
+        "totalLimit": { "type": "number" },
+        "closingDay": { "type": "number" },
+        "dueDay": { "type": "number" },
+        "color": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "name", "totalLimit", "closingDay", "dueDay"]
+    },
+    "installmentPurchases": {
+      "title": "Installment Purchases",
+      "description": "Master parent records for installment purchases",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "totalAmount": { "type": "number" },
+        "installmentCount": { "type": "number" },
+        "startMonth": { "type": "string" },
+        "cardId": { "type": "string" },
+        "categoryId": { "type": "string" },
+        "categoryName": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "title", "totalAmount", "installmentCount", "startMonth"]
+    },
+    "categories": {
+      "title": "Categories",
+      "description": "Expense and income categories",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "icon": { "type": "string" },
+        "color": { "type": "string" },
+        "isDefault": { "type": "boolean" }
+      },
+      "required": ["name"]
+    },
+    "accessRequests": {
+      "title": "Access Requests",
+      "description": "Access requests and trial tracking for users",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "phone": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "TRIAL", "LIFETIME", "BLOCKED", "EXPIRED"] },
+        "trialStartDate": { "type": "string" },
+        "trialEndDate": { "type": "string" },
+        "approvedAt": { "type": "string" },
+        "approvedBy": { "type": "string" },
+        "requestedAt": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["userId", "email", "status", "requestedAt"]
+    },
+    "systemSettings": {
+      "title": "System & Payment Gateway Settings",
+      "description": "System configurations, pricing, and bank/gateway credentials managed by super admin",
+      "type": "object",
+      "properties": {
+        "lifetimePrice": { "type": "number" },
+        "pixKey": { "type": "string" },
+        "pixKeyType": { "type": "string" },
+        "pixBeneficiaryName": { "type": "string" },
+        "pixCity": { "type": "string" },
+        "pixBankName": { "type": "string" },
+        "mercadoPagoPublicKey": { "type": "string" },
+        "mercadoPagoAccessToken": { "type": "string" },
+        "mercadoPagoEnabled": { "type": "boolean" },
+        "stoneMerchantId": { "type": "string" },
+        "stoneApiKey": { "type": "string" },
+        "stoneEnabled": { "type": "boolean" },
+        "superAdminEmails": { "type": "array" },
+        "trialDays": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      }
+    },
+    "payments": {
+      "title": "Payments",
+      "description": "Payment records for lifetime unlocks",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "userName": { "type": "string" },
+        "amount": { "type": "number" },
+        "gateway": { "type": "string" },
+        "method": { "type": "string" },
+        "status": { "type": "string" },
+        "transactionId": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "approvedAt": { "type": "string" }
+      },
+      "required": ["userId", "amount", "status", "createdAt"]
+    },
+    "budgets": {
+      "title": "Category Budgets",
+      "description": "Monthly spending budget and goal limits per category",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "categoryId": { "type": "string" },
+        "categoryName": { "type": "string" },
+        "monthlyLimit": { "type": "number" },
+        "referenceMonth": { "type": "string" },
+        "alertThresholdPercentage": { "type": "number" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "categoryId", "categoryName", "monthlyLimit"]
+    }
+  }
+}
