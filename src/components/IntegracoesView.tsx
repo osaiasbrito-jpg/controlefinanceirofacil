@@ -40,12 +40,16 @@ export const IntegracoesView: React.FC = () => {
 
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
-  const [activeCodeTab, setActiveCodeTab] = useState<'fetch-direct' | 'fetch-auth' | 'curl'>('fetch-direct');
+  const [activeCodeTab, setActiveCodeTab] = useState<'fetch-sessao' | 'fetch-pacote' | 'fetch-sessao-pacote' | 'curl'>('fetch-sessao');
 
-  // Test form state
+  // Test form state (Print 03 & Print 04)
+  const [testMode, setTestMode] = useState<'sessao' | 'pacote' | 'sessao-pacote'>('sessao');
   const [testAmount, setTestAmount] = useState('180,00');
   const [testClientName, setTestClientName] = useState('Mariana Alves');
   const [testDescription, setTestDescription] = useState('Massagem Relaxante & Drenagem');
+  const [testPackageName, setTestPackageName] = useState('Pacote 10 Sessões');
+  const [testTotalSessions, setTestTotalSessions] = useState('10');
+  const [testSessionNumber, setTestSessionNumber] = useState('1');
   const [testDate, setTestDate] = useState(() => new Date().toISOString().substring(0, 10));
   const [loadingTest, setLoadingTest] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; data?: any } | null>(null);
@@ -140,29 +144,61 @@ export const IntegracoesView: React.FC = () => {
     setLoadingTest(true);
     setTestResult(null);
 
-    try {
-      const { ok, data, usedUrl } = await safeIntegrationPost('/api/integrations/massoterapia', {
-        email: integrationEmail,
-        password: integrationPassword,
+    let payload: any = {
+      email: integrationEmail,
+      password: integrationPassword,
+      date: testDate,
+      category: 'MASSOTERAPIA',
+    };
+
+    if (testMode === 'pacote') {
+      // Print 04: Cadastro de Pacote (Valor informado UMA ÚNICA VEZ que entra na soma do ganho no mês)
+      payload = {
+        ...payload,
+        isPackage: true,
+        tipo: 'PACOTE',
+        packageName: testPackageName || 'Pacote 10 Sessões',
+        totalSessions: parseInt(testTotalSessions, 10) || 10,
+        amount: testAmount,
+        clientName: testClientName || 'Cliente do Pacote',
+        description: `MASSOTERAPIA - Pacote: ${testPackageName || 'Pacote de Sessões'}`,
+        alsoAddToSalary: true,
+      };
+    } else if (testMode === 'sessao-pacote') {
+      // Sessão de Pacote Já Pago: Não cobra novamente para evitar duplicidade financeira
+      payload = {
+        ...payload,
+        isPackageSession: true,
+        tipo: 'PACOTE_SESSAO',
+        packageName: testPackageName || 'Pacote 10 Sessões',
+        sessionNumber: parseInt(testSessionNumber, 10) || 1,
+        amount: 0,
+        clientName: testClientName || 'Cliente com Pacote',
+        description: `MASSOTERAPIA - Sessão de Pacote #${testSessionNumber} (${testClientName})`,
+      };
+    } else {
+      // Print 03: Atendimento de Sessão Individual com Valor Digitado
+      payload = {
+        ...payload,
         amount: testAmount,
         clientName: testClientName,
         description: testDescription || 'Atendimento Massoterapia',
-        date: testDate,
-        category: 'MASSOTERAPIA',
         alsoAddToSalary: true,
-      });
+      };
+    }
+
+    try {
+      const { ok, data, usedUrl } = await safeIntegrationPost('/api/integrations/massoterapia', payload);
 
       if (ok && data.success) {
         setTestResult({
           success: true,
-          message: data.message || 'Atendimento lançado com sucesso!',
+          message: data.message || 'Lançamento processado com sucesso!',
           data: { ...data.data, usedUrl },
         });
-        // Atualiza os dados do frontend em tempo real
         if (refreshDataFromPostgres) {
           await refreshDataFromPostgres();
         }
-        // Atualiza a tabela de histórico
         await fetchHistory();
       } else {
         setTestResult({
@@ -180,96 +216,131 @@ export const IntegracoesView: React.FC = () => {
     }
   };
 
-  // Code snippets for the other system in Google AI Studio
-  const codeDirectFetch = `// ================================================================
-// CÓDIGO PARA O OUTRO SISTEMA NO GOOGLE AI STUDIO (GESTAO DE PESSOAS)
-// Chame esta funcao ao concluir um atendimento de massoterapia
+  // Código para Atendimento de Sessão Individual (Print 03)
+  const codeSessao = `// ================================================================
+// PRINT 03: ATENDIMENTO DO CLIENTE E DIGITAÇÃO DO VALOR DA SESSÃO
+// Chame esta função no sistema de Gestão de Pessoas ao concluir a sessão
 // ================================================================
-async function lancarAtendimentoFinanceiro(dadosAtendimento) {
-  // URL Oficial de Alta Disponibilidade (Google AI Studio & Cloud Run)
+async function lancarAtendimentoSessao(dadosAtendimento) {
   const URL_FINANCEIRO = '${officialEndpointUrl}';
 
   const payload = {
-    // 1. Credenciais de Acesso (solicitadas pelo financeiro)
+    // 1. Credenciais
     email: '${integrationEmail}',
     password: '${integrationPassword}',
 
-    // 2. Dados do Atendimento de Massoterapia
-    amount: dadosAtendimento.valor || 150.00, // Ex: 150.00 ou "150,00"
-    clientName: dadosAtendimento.nomeCliente || 'Cliente Atendido',
-    description: dadosAtendimento.procedimento || 'Atendimento Massoterapia',
-    category: 'MASSOTERAPIA', // Categoria cadastrada
-    date: dadosAtendimento.data || '${new Date().toISOString().substring(0, 10)}', // YYYY-MM-DD
+    // 2. Dados do Atendimento de Massoterapia (Print 03)
+    amount: dadosAtendimento.valor || 180.00, // Valor digitado na tela de atendimento
+    clientName: dadosAtendimento.nomeCliente || 'Mariana Alves',
+    description: dadosAtendimento.procedimento || 'Massagem Relaxante & Drenagem',
+    category: 'MASSOTERAPIA',
+    date: dadosAtendimento.data || '${new Date().toISOString().substring(0, 10)}',
     
-    // 3. Soma automaticamente no Salario Mensal Fixo
+    // 3. Soma automaticamente no Salário Mensal Fixo
     alsoAddToSalary: true
   };
 
-  try {
-    const resposta = await fetch(URL_FINANCEIRO, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    const resultado = await resposta.json();
-    if (resultado.success) {
-      console.log('✅ Lancamento registrado no financeiro com sucesso!', resultado);
-      return resultado;
-    } else {
-      console.error('❌ Erro no financeiro:', resultado.error);
-    }
-  } catch (erro) {
-    console.error('❌ Falha na conexao com o sistema financeiro:', erro);
-  }
-}`;
-
-  const codeAuthStep = `// ================================================================
-// FLUXO EM 2 PASSOS (LOGIN COM TOKEN + LANCAMENTO)
-// ================================================================
-
-// 1. Solicita autenticacao com usuario e senha
-async function obterTokenIntegracao() {
-  const res = await fetch('${CLOUD_RUN_URL}/api/integrations/auth', {
+  const res = await fetch(URL_FINANCEIRO, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      email: '${integrationEmail}',
-      password: '${integrationPassword}'
-    })
+    body: JSON.stringify(payload)
   });
-  const data = await res.json();
-  return data.token;
-}
 
-// 2. Realiza o lancamento do atendimento de Massoterapia
-async function enviarMassoterapiaComToken(token, atendimento) {
-  const res = await fetch('${officialEndpointUrl}', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + token
-    },
-    body: JSON.stringify({
-      amount: atendimento.valor,
-      clientName: atendimento.nomeCliente,
-      description: 'Atendimento Massoterapia',
-      category: 'MASSOTERAPIA',
-      alsoAddToSalary: true // Soma ao Salario Mensal Fixo
-    })
-  });
   return await res.json();
 }`;
 
-  const codeCurl = `# Testar lancamento direto via terminal (cURL)
+  // Código para Cadastro de Pacote (Print 04 - Valor único)
+  const codePacote = `// ================================================================
+// PRINT 04: CADASTRO DE PACOTE (VALOR INFORMADO UMA ÚNICA VEZ)
+// O valor entrará na soma do valor ganho no mês de referência
+// ================================================================
+async function lancarCadastroPacote(dadosPacote) {
+  const URL_FINANCEIRO = '${officialEndpointUrl}';
+
+  const payload = {
+    // 1. Credenciais
+    email: '${integrationEmail}',
+    password: '${integrationPassword}',
+
+    // 2. Dados do Pacote (Print 04)
+    isPackage: true,
+    packageName: dadosPacote.nomePacote || 'Pacote 10 Sessões',
+    totalSessions: dadosPacote.quantidadeSessoes || 10,
+    amount: dadosPacote.valorTotal || 850.00, // Informado UMA ÚNICA VEZ
+    clientName: dadosPacote.nomeCliente || 'Carlos Henrique',
+    category: 'MASSOTERAPIA',
+    date: dadosPacote.data || '${new Date().toISOString().substring(0, 10)}',
+
+    // 3. Entra na soma do valor ganho no mês (Salário Mensal Fixo)
+    alsoAddToSalary: true
+  };
+
+  const res = await fetch(URL_FINANCEIRO, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  return await res.json();
+}`;
+
+  // Código para Sessão de Pacote Já Pago
+  const codeSessaoPacote = `// ================================================================
+// SESSÃO DE PACOTE JÁ PAGO (EVITA DUPLICAR COBRANÇA NO FINANCEIRO)
+// A sessão é registrada no histórico sem somar novamente a receita
+// ================================================================
+async function lancarSessaoDePacote(dadosSessao) {
+  const URL_FINANCEIRO = '${officialEndpointUrl}';
+
+  const payload = {
+    email: '${integrationEmail}',
+    password: '${integrationPassword}',
+
+    // Informa que esta sessão pertence a um pacote pré-pago
+    isPackageSession: true,
+    packageName: dadosSessao.nomePacote || 'Pacote 10 Sessões',
+    sessionNumber: dadosSessao.numeroSessao || 1,
+    clientName: dadosSessao.nomeCliente || 'Carlos Henrique',
+    date: dadosSessao.data || '${new Date().toISOString().substring(0, 10)}'
+  };
+
+  const res = await fetch(URL_FINANCEIRO, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  return await res.json();
+}`;
+
+  const codeCurl = `# ================================================================
+# TESTES VIA TERMINAL (cURL)
+# ================================================================
+
+# 1. Teste de Atendimento de Sessão Avulsa (Print 03)
 curl -X POST "${officialEndpointUrl}" \\
   -H "Content-Type: application/json" \\
   -d '{
     "email": "${integrationEmail}",
     "password": "${integrationPassword}",
-    "amount": 150.00,
-    "clientName": "Maria Silva",
-    "description": "Massoterapia - Drenagem Linfatica",
+    "amount": 180.00,
+    "clientName": "Mariana Alves",
+    "description": "Massagem Relaxante",
+    "category": "MASSOTERAPIA",
+    "alsoAddToSalary": true
+  }'
+
+# 2. Teste de Cadastro de Pacote (Print 04 - Valor Único no Mês)
+curl -X POST "${officialEndpointUrl}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "email": "${integrationEmail}",
+    "password": "${integrationPassword}",
+    "isPackage": true,
+    "packageName": "Pacote 10 Sessões",
+    "totalSessions": 10,
+    "amount": 850.00,
+    "clientName": "Carlos Henrique",
     "category": "MASSOTERAPIA",
     "alsoAddToSalary": true
   }'`;
@@ -305,53 +376,65 @@ curl -X POST "${officialEndpointUrl}" \\
         </button>
       </div>
 
-      {/* Regras e Funcionamento dos 3 Requisitos */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* Regras e Funcionamento dos Requisitos (Prints 01 a 04) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs p-5 flex flex-col justify-between">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-9 h-9 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center font-black text-sm">
               1
             </div>
             <div>
-              <h4 className="font-extrabold text-slate-900 text-sm">Acesso com Usuário & Senha</h4>
-              <span className="text-[11px] text-slate-400">Autenticação Segura</span>
+              <h4 className="font-extrabold text-slate-900 text-sm">Renda Extra Massoterapia</h4>
+              <span className="text-[11px] text-slate-400">Print 01: Cadastro</span>
             </div>
           </div>
           <p className="text-xs text-slate-600 leading-relaxed">
-            O outro sistema solicita autorização via usuário e senha ou passa as credenciais no corpo da
-            requisição para validação instantânea.
+            Cadastra o tipo <strong>MASSOTERAPIA</strong>, o mês do ganho e o valor na Renda Extra do sistema financeiro.
+          </p>
+        </div>
+
+        <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs p-5 flex flex-col justify-between">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-9 h-9 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center font-black text-sm">
+              2
+            </div>
+            <div>
+              <h4 className="font-extrabold text-slate-900 text-sm">Conexão de Sessões</h4>
+              <span className="text-[11px] text-slate-400">Print 02: Gestão de Pessoas</span>
+            </div>
+          </div>
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Conexão direta com o sistema de pessoas onde as sessões dos clientes são cadastradas quando atendidos.
           </p>
         </div>
 
         <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs p-5 flex flex-col justify-between">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-9 h-9 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-black text-sm">
-              2
+              3
             </div>
             <div>
-              <h4 className="font-extrabold text-slate-900 text-sm">Categoria MASSOTERAPIA</h4>
-              <span className="text-[11px] text-slate-400">Renda Extra Automática</span>
+              <h4 className="font-extrabold text-slate-900 text-sm">Atendimento & Valor</h4>
+              <span className="text-[11px] text-slate-400">Print 03: Valor da Sessão</span>
             </div>
           </div>
           <p className="text-xs text-slate-600 leading-relaxed">
-            Cada atendimento concluído gera um registro em Renda Extra com o valor recebido, nome do cliente e a
-            categoria <strong>MASSOTERAPIA</strong>.
+            Quando o cliente é atendido e o valor da sessão é digitado, o lançamento é gravado e somado ao ganho mensal.
           </p>
         </div>
 
         <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs p-5 flex flex-col justify-between">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-9 h-9 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center font-black text-sm">
-              3
+              4
             </div>
             <div>
-              <h4 className="font-extrabold text-slate-900 text-sm">Somado ao Salário Fixo</h4>
-              <span className="text-[11px] text-slate-400">Composição Mensal</span>
+              <h4 className="font-extrabold text-slate-900 text-sm">Pacote (Valor Único)</h4>
+              <span className="text-[11px] text-slate-400">Print 04: Soma 1x no Mês</span>
             </div>
           </div>
           <p className="text-xs text-slate-600 leading-relaxed">
-            O valor lançado entra simultaneamente no <strong>Salário Mensal</strong> do mês corrente, elevando a
-            receita e o saldo para pagamento de despesas.
+            No cadastro de pacote, o valor é informado <strong>uma única vez</strong> e entra na soma do ganho total do mês.
           </p>
         </div>
       </div>
@@ -520,55 +603,215 @@ curl -X POST "${officialEndpointUrl}" \\
               <Play className="w-4 h-4 text-emerald-600" />
               <h3 className="font-extrabold text-slate-900 text-base">Simular Lançamento Agora</h3>
             </div>
-            <p className="text-xs text-slate-500 mb-4">
-              Teste o envio de um atendimento de massoterapia e comprove a inclusão na Renda Extra e no Salário
-              Fixo.
+            <p className="text-xs text-slate-500 mb-3">
+              Selecione o fluxo desejado para testar em tempo real e comprovar os lançamentos:
             </p>
 
+            {/* Abas de Modo de Teste */}
+            <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-2xl mb-4 text-[11px] font-bold">
+              <button
+                type="button"
+                onClick={() => {
+                  setTestMode('sessao');
+                  setTestAmount('180,00');
+                }}
+                className={`py-2 px-2 rounded-xl transition-all text-center cursor-pointer ${
+                  testMode === 'sessao'
+                    ? 'bg-white text-emerald-800 shadow-xs font-extrabold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                🧘 Sessão (Print 03)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTestMode('pacote');
+                  setTestAmount('850,00');
+                }}
+                className={`py-2 px-2 rounded-xl transition-all text-center cursor-pointer ${
+                  testMode === 'pacote'
+                    ? 'bg-white text-purple-800 shadow-xs font-extrabold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                📦 Pacote 1x (Print 04)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTestMode('sessao-pacote');
+                  setTestAmount('0,00');
+                }}
+                className={`py-2 px-2 rounded-xl transition-all text-center cursor-pointer ${
+                  testMode === 'sessao-pacote'
+                    ? 'bg-white text-amber-800 shadow-xs font-extrabold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                🛡️ Pacote Pago
+              </button>
+            </div>
+
             <form onSubmit={handleRunTest} className="space-y-3">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  Valor do Atendimento (R$)
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-2.5 text-xs font-bold text-slate-400">R$</span>
-                  <input
-                    type="text"
-                    value={testAmount}
-                    onChange={(e) => setTestAmount(e.target.value)}
-                    placeholder="150,00"
-                    required
-                    className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-              </div>
+              {testMode === 'pacote' && (
+                <>
+                  <div className="p-3 bg-purple-50 border border-purple-200 rounded-2xl text-[11px] text-purple-900 leading-relaxed">
+                    <strong>Print 04 - Cadastro de Pacote:</strong> O valor total é informado{' '}
+                    <strong>uma única vez</strong> e entrará na soma do valor ganho no mês de referência.
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Nome do Pacote *</label>
+                    <input
+                      type="text"
+                      value={testPackageName}
+                      onChange={(e) => setTestPackageName(e.target.value)}
+                      placeholder="Ex: Pacote 10 Sessões Relaxantes"
+                      required
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Valor do Pacote (R$) *
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-2 text-xs font-bold text-slate-400">R$</span>
+                        <input
+                          type="text"
+                          value={testAmount}
+                          onChange={(e) => setTestAmount(e.target.value)}
+                          placeholder="850,00"
+                          required
+                          className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">Qtd. Sessões</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={testTotalSessions}
+                        onChange={(e) => setTestTotalSessions(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Nome do Cliente</label>
+                    <input
+                      type="text"
+                      value={testClientName}
+                      onChange={(e) => setTestClientName(e.target.value)}
+                      placeholder="Ex: Carlos Henrique"
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                </>
+              )}
+
+              {testMode === 'sessao' && (
+                <>
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-[11px] text-emerald-900 leading-relaxed">
+                    <strong>Print 03 - Atendimento e Valor da Sessão:</strong> Digite o valor da sessão concluída.
+                    Entra em Renda Extra e soma ao Salário Fixo.
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Valor da Sessão (R$) *
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2.5 text-xs font-bold text-slate-400">R$</span>
+                      <input
+                        type="text"
+                        value={testAmount}
+                        onChange={(e) => setTestAmount(e.target.value)}
+                        placeholder="180,00"
+                        required
+                        className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Nome do Cliente</label>
+                    <input
+                      type="text"
+                      value={testClientName}
+                      onChange={(e) => setTestClientName(e.target.value)}
+                      placeholder="Ex: Mariana Alves"
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Procedimento / Descrição
+                    </label>
+                    <input
+                      type="text"
+                      value={testDescription}
+                      onChange={(e) => setTestDescription(e.target.value)}
+                      placeholder="Ex: Massagem Relaxante"
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                </>
+              )}
+
+              {testMode === 'sessao-pacote' && (
+                <>
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-[11px] text-amber-900 leading-relaxed">
+                    <strong>Sessão de Pacote Já Pago:</strong> Registra a realização do atendimento no histórico sem
+                    duplicar cobrança financeira (já que o pacote foi pago no ato da contratação).
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Nome do Cliente</label>
+                    <input
+                      type="text"
+                      value={testClientName}
+                      onChange={(e) => setTestClientName(e.target.value)}
+                      placeholder="Ex: Carlos Henrique"
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">Pacote Vinculado</label>
+                      <input
+                        type="text"
+                        value={testPackageName}
+                        onChange={(e) => setTestPackageName(e.target.value)}
+                        placeholder="Ex: Pacote 10 Sessões"
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">Nº da Sessão</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={testSessionNumber}
+                        onChange={(e) => setTestSessionNumber(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
 
               <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">Nome do Cliente</label>
-                <input
-                  type="text"
-                  value={testClientName}
-                  onChange={(e) => setTestClientName(e.target.value)}
-                  placeholder="Ex: Roberto Silva"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  Procedimento / Descrição
-                </label>
-                <input
-                  type="text"
-                  value={testDescription}
-                  onChange={(e) => setTestDescription(e.target.value)}
-                  placeholder="Ex: Massagem Relaxante"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">Data do Atendimento</label>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Data do Lançamento</label>
                 <input
                   type="date"
                   value={testDate}
@@ -580,25 +823,30 @@ curl -X POST "${officialEndpointUrl}" \\
               <div className="p-3 bg-emerald-50/70 border border-emerald-100 rounded-2xl text-[11px] text-emerald-900 flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                 <span>
-                  O lançamento será categorizado como <strong>MASSOTERAPIA</strong> e somado ao{' '}
-                  <strong>Salário Fixo</strong>.
+                  Categorizado como <strong>MASSOTERAPIA</strong> e integrado ao <strong>Salário Fixo</strong>.
                 </span>
               </div>
 
               <button
                 type="submit"
                 disabled={loadingTest}
-                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl flex items-center justify-center gap-2 transition-all shadow-md shadow-emerald-200 disabled:opacity-50"
+                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl flex items-center justify-center gap-2 transition-all shadow-md shadow-emerald-200 disabled:opacity-50 cursor-pointer"
               >
                 {loadingTest ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Lançando Atendimento...</span>
+                    <span>Processando Lançamento...</span>
                   </>
                 ) : (
                   <>
                     <Play className="w-4 h-4" />
-                    <span>Lançar Atendimento de Teste</span>
+                    <span>
+                      {testMode === 'pacote'
+                        ? 'Lançar Pacote Único (R$ ' + testAmount + ')'
+                        : testMode === 'sessao-pacote'
+                        ? 'Registrar Atendimento do Pacote'
+                        : 'Lançar Sessão (R$ ' + testAmount + ')'}
+                    </span>
                   </>
                 )}
               </button>
@@ -623,15 +871,21 @@ curl -X POST "${officialEndpointUrl}" \\
                 </div>
                 {testResult.data && (
                   <div className="text-[11px] text-emerald-700 mt-2 space-y-1">
-                    <div>
-                      • Renda Extra ID: <code className="font-mono">{testResult.data.income?.id}</code>
-                    </div>
-                    <div>
-                      • Salário Fixo ID: <code className="font-mono">{testResult.data.salary?.id}</code>
-                    </div>
-                    <div>
-                      • Valor: <strong>{formatCurrency(testResult.data.income?.amount || 0)}</strong>
-                    </div>
+                    {testResult.data.income && (
+                      <div>
+                        • Renda Extra ID: <code className="font-mono">{testResult.data.income?.id}</code>
+                      </div>
+                    )}
+                    {testResult.data.salary && (
+                      <div>
+                        • Salário Fixo ID: <code className="font-mono">{testResult.data.salary?.id}</code>
+                      </div>
+                    )}
+                    {testResult.data.type && (
+                      <div>
+                        • Tipo: <strong>{testResult.data.type}</strong>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -652,30 +906,40 @@ curl -X POST "${officialEndpointUrl}" \\
               </div>
 
               {/* Abas de Código */}
-              <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
+              <div className="flex flex-wrap bg-slate-100 p-1 rounded-xl gap-1">
                 <button
-                  onClick={() => setActiveCodeTab('fetch-direct')}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors ${
-                    activeCodeTab === 'fetch-direct'
-                      ? 'bg-white text-slate-900 shadow-xs'
+                  onClick={() => setActiveCodeTab('fetch-sessao')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                    activeCodeTab === 'fetch-sessao'
+                      ? 'bg-white text-emerald-800 shadow-xs'
                       : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  Fetch Direto (1 Passo)
+                  Sessão (Print 03)
                 </button>
                 <button
-                  onClick={() => setActiveCodeTab('fetch-auth')}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors ${
-                    activeCodeTab === 'fetch-auth'
-                      ? 'bg-white text-slate-900 shadow-xs'
+                  onClick={() => setActiveCodeTab('fetch-pacote')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                    activeCodeTab === 'fetch-pacote'
+                      ? 'bg-white text-purple-800 shadow-xs'
                       : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  Auth com Token
+                  Pacote 1x (Print 04)
+                </button>
+                <button
+                  onClick={() => setActiveCodeTab('fetch-sessao-pacote')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                    activeCodeTab === 'fetch-sessao-pacote'
+                      ? 'bg-white text-amber-800 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  Pacote Pré-Pago
                 </button>
                 <button
                   onClick={() => setActiveCodeTab('curl')}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors ${
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
                     activeCodeTab === 'curl'
                       ? 'bg-white text-slate-900 shadow-xs'
                       : 'text-slate-500 hover:text-slate-800'
@@ -688,22 +952,25 @@ curl -X POST "${officialEndpointUrl}" \\
 
             <div className="relative">
               <pre className="p-4 bg-slate-900 text-slate-100 rounded-2xl font-mono text-xs overflow-x-auto leading-relaxed max-h-[340px]">
-                {activeCodeTab === 'fetch-direct' && codeDirectFetch}
-                {activeCodeTab === 'fetch-auth' && codeAuthStep}
+                {activeCodeTab === 'fetch-sessao' && codeSessao}
+                {activeCodeTab === 'fetch-pacote' && codePacote}
+                {activeCodeTab === 'fetch-sessao-pacote' && codeSessaoPacote}
                 {activeCodeTab === 'curl' && codeCurl}
               </pre>
 
               <button
                 onClick={() => {
                   const text =
-                    activeCodeTab === 'fetch-direct'
-                      ? codeDirectFetch
-                      : activeCodeTab === 'fetch-auth'
-                      ? codeAuthStep
+                    activeCodeTab === 'fetch-sessao'
+                      ? codeSessao
+                      : activeCodeTab === 'fetch-pacote'
+                      ? codePacote
+                      : activeCodeTab === 'fetch-sessao-pacote'
+                      ? codeSessaoPacote
                       : codeCurl;
                   copyToClipboard(text, 'code');
                 }}
-                className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-[11px] font-bold rounded-xl flex items-center gap-1.5 border border-slate-700 shadow-sm"
+                className="absolute top-3 right-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-[11px] font-bold rounded-xl flex items-center gap-1.5 border border-slate-700 shadow-sm cursor-pointer"
               >
                 {copiedKey === 'code' ? (
                   <>
@@ -720,7 +987,7 @@ curl -X POST "${officialEndpointUrl}" \\
             </div>
             <p className="text-[11px] text-slate-400 mt-2">
               Basta copiar este código e colar dentro do sistema de Gestão de Pessoas no Google AI Studio quando o
-              atendimento for concluído.
+              atendimento ou pacote for cadastrado.
             </p>
           </div>
 
@@ -752,6 +1019,7 @@ curl -X POST "${officialEndpointUrl}" \\
                   <thead>
                     <tr className="border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                       <th className="pb-2.5">Data / Hora</th>
+                      <th className="pb-2.5">Tipo</th>
                       <th className="pb-2.5">Cliente</th>
                       <th className="pb-2.5">Descrição</th>
                       <th className="pb-2.5">Valor</th>
@@ -759,35 +1027,70 @@ curl -X POST "${officialEndpointUrl}" \\
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                    {history.map((item) => (
-                      <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
-                        <td className="py-2.5 whitespace-nowrap text-slate-500">
-                          {item.createdAt
-                            ? new Date(item.createdAt).toLocaleString('pt-BR', {
-                                day: '2-digit',
-                                month: '2-digit',
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })
-                            : '-'}
-                        </td>
-                        <td className="py-2.5 font-bold text-slate-900">
-                          {item.clientName || 'Cliente Direto'}
-                        </td>
-                        <td className="py-2.5 max-w-[180px] truncate text-slate-600">
-                          {item.description || 'MASSOTERAPIA'}
-                        </td>
-                        <td className="py-2.5 font-extrabold text-emerald-700 whitespace-nowrap">
-                          {formatCurrency(item.amount || 0)}
-                        </td>
-                        <td className="py-2.5 whitespace-nowrap">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                            <Sparkles className="w-2.5 h-2.5" />
-                            Renda Extra + Salário Fixo
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    {history.map((item) => {
+                      const isPacote =
+                        (item as any).tipo === 'PACOTE' ||
+                        item.description?.toLowerCase().includes('pacote');
+                      const isSessaoPrePaga =
+                        (item as any).tipo === 'PACOTE_SESSAO' ||
+                        item.description?.toLowerCase().includes('pré-pago') ||
+                        item.amount === 0;
+
+                      return (
+                        <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="py-2.5 whitespace-nowrap text-slate-500">
+                            {item.createdAt
+                              ? new Date(item.createdAt).toLocaleString('pt-BR', {
+                                  day: '2-digit',
+                                  month: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                              : '-'}
+                          </td>
+                          <td className="py-2.5 whitespace-nowrap">
+                            {isPacote ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 text-purple-800 border border-purple-200">
+                                📦 Pacote Único (Print 04)
+                              </span>
+                            ) : isSessaoPrePaga ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                                🛡️ Sessão Pacote (Sem Duplicar)
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                🧘 Sessão Avulsa (Print 03)
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 font-bold text-slate-900">
+                            {item.clientName || 'Cliente Direto'}
+                          </td>
+                          <td className="py-2.5 max-w-[180px] truncate text-slate-600">
+                            {item.description || 'MASSOTERAPIA'}
+                          </td>
+                          <td className="py-2.5 font-extrabold text-emerald-700 whitespace-nowrap">
+                            {isSessaoPrePaga ? (
+                              <span className="text-slate-400 font-semibold text-[11px]">Pré-Pago (R$ 0,00)</span>
+                            ) : (
+                              formatCurrency(item.amount || 0)
+                            )}
+                          </td>
+                          <td className="py-2.5 whitespace-nowrap">
+                            {isSessaoPrePaga ? (
+                              <span className="text-[10px] text-slate-500 font-medium">
+                                Log de Atendimento
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                <Sparkles className="w-2.5 h-2.5" />
+                                Renda Extra + Salário Fixo
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

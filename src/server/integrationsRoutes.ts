@@ -227,10 +227,23 @@ const handleRegisterMassoterapia = async (req: Request, res: Response) => {
       });
     }
 
-    if (rawAmount === undefined || rawAmount === null || rawAmount === '') {
+    const isPackageSession =
+      req.body?.isPackageSession === true ||
+      req.body?.sessaoDePacote === true ||
+      req.body?.belongsToPackage === true ||
+      req.body?.tipo === 'PACOTE_SESSAO';
+
+    const isPackage =
+      req.body?.isPackage === true ||
+      req.body?.ePacote === true ||
+      req.body?.tipo === 'PACOTE' ||
+      req.path.includes('pacote') ||
+      Boolean(req.body?.packageName || req.body?.nomePacote);
+
+    if (!isPackageSession && (rawAmount === undefined || rawAmount === null || rawAmount === '')) {
       return res.status(400).json({
         success: false,
-        error: 'O valor do atendimento (amount ou valor) é obrigatório.',
+        error: 'O valor do atendimento ou pacote (amount ou valor) é obrigatório.',
         example: { amount: 180.0, clientName: 'Nome do Cliente', description: 'Massagem Relaxante' },
       });
     }
@@ -241,7 +254,9 @@ const handleRegisterMassoterapia = async (req: Request, res: Response) => {
     // Forçar a categoria para MASSOTERAPIA por padrão caso não enviada
     const payload = {
       ...req.body,
-      amount: rawAmount,
+      isPackage: isPackage || req.body.isPackage,
+      isPackageSession,
+      amount: rawAmount ?? 0,
       clientName,
       description,
       category: req.body.category || 'MASSOTERAPIA',
@@ -268,14 +283,41 @@ const handleRegisterMassoterapia = async (req: Request, res: Response) => {
 
 integrationsRouter.post('/massoterapia', integrationAuthMiddleware, handleRegisterMassoterapia);
 integrationsRouter.post('/income', integrationAuthMiddleware, handleRegisterMassoterapia);
+integrationsRouter.post('/pacote', integrationAuthMiddleware, handleRegisterMassoterapia);
+integrationsRouter.post('/pacotes', integrationAuthMiddleware, handleRegisterMassoterapia);
+integrationsRouter.post('/sessao', integrationAuthMiddleware, handleRegisterMassoterapia);
+integrationsRouter.post('/sessoes', integrationAuthMiddleware, handleRegisterMassoterapia);
 
 integrationsRouter.get('/massoterapia', (_req: Request, res: Response) => {
   res.json({
     success: true,
     status: 'online',
-    message: 'Endpoint de integração de Massoterapia ativo. Envie requisições POST autenticadas para registrar atendimentos.',
+    message: 'Endpoint de integração de Massoterapia ativo. Envie requisições POST autenticadas para registrar atendimentos e pacotes.',
     category: 'MASSOTERAPIA',
     defaultAction: 'POST /api/integrations/massoterapia',
+    supportedEndpoints: [
+      '/api/integrations/massoterapia (Sessão ou Pacote)',
+      '/api/integrations/pacote (Cadastro de Pacote com valor único)',
+      '/api/integrations/sessao (Atendimento de Sessão Individual)',
+    ],
+  });
+});
+
+integrationsRouter.get('/pacote', (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    status: 'online',
+    message: 'Endpoint de cadastro de Pacote ativo. O valor do pacote é informado uma única vez e somado ao faturamento do mês.',
+    category: 'MASSOTERAPIA',
+  });
+});
+
+integrationsRouter.get('/sessao', (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    status: 'online',
+    message: 'Endpoint de lançamento de Sessão avulsa ativo.',
+    category: 'MASSOTERAPIA',
   });
 });
 

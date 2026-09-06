@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { db, pool } from '../db';
 import { extraIncomes, salaries, users, systemIntegrationsLog, categories } from '../db/schema';
 import { eq, desc } from 'drizzle-orm';
+import { adminDb } from '../lib/firebase-admin';
 
 const INTEGRATION_SECRET = process.env.INTEGRATION_SECRET || 'meu-controle-financeiro-secret-key-2026';
 
@@ -15,16 +16,46 @@ export interface IntegrationUser {
 
 export interface MassoterapiaIncomePayload {
   userId?: string;
-  amount: number | string;
+  amount?: number | string;
+  valor?: number | string;
+  value?: number | string;
+  price?: number | string;
   description?: string;
+  procedimento?: string;
+  servico?: string;
   category?: string;
   source?: string;
   date?: string;
+  data?: string;
   referenceMonth?: string;
+  mesReferencia?: string;
   clientName?: string;
+  nomeCliente?: string;
+  paciente?: string;
+  client?: string;
   notes?: string;
+  observacoes?: string;
   status?: 'RECEIVED' | 'PENDING';
   alsoAddToSalary?: boolean;
+  somarAoSalario?: boolean;
+  // Campos de Pacote (Print 04)
+  tipo?: 'SESSAO' | 'PACOTE' | 'PACOTE_SESSAO' | string;
+  isPackage?: boolean;
+  ePacote?: boolean;
+  packageName?: string;
+  nomePacote?: string;
+  titulo?: string;
+  totalSessions?: number;
+  sessoes?: number;
+  quantidadeSessoes?: number;
+  // Campos de Sessão pertencente a Pacote Pré-Pago (Evita duplicar cobrança)
+  isPackageSession?: boolean;
+  sessaoDePacote?: boolean;
+  belongsToPackage?: boolean;
+  packageId?: string;
+  pacoteId?: string;
+  sessionNumber?: number;
+  numeroSessao?: number;
 }
 
 /**
@@ -186,47 +217,134 @@ export function parseCurrencyAmount(raw: any): number {
 }
 
 /**
- * Registra o atendimento de massoterapia vindo do sistema de Gestão de Pessoas:
- * 1. Lança em Renda Extra (extra_incomes) na categoria 'MASSOTERAPIA'
- * 2. Lança em Salários (salaries) para somar como salário mensal fixo
- * 3. Registra no log de integrações
+ * Registra o atendimento ou pacote de massoterapia vindo do sistema de Gestão de Pessoas:
+ * 1. Atendimento de Sessão Avulsa (Print 03): Lança em Renda Extra (MASSOTERAPIA) e Salário Mensal Fixo
+ * 2. Cadastro de Pacote (Print 04): Valor cobrado UMA ÚNICA VEZ que entra na soma do valor ganho no mês
+ * 3. Sessão de Pacote Pré-Pago: Registra no histórico da clínica sem duplicar o valor financeiro
  */
 export async function registerMassoterapiaIncome(
   userId: string,
   payload: MassoterapiaIncomePayload
 ) {
-  const numAmount = parseCurrencyAmount(payload.amount);
-  if (numAmount <= 0) {
-    throw new Error('O valor do atendimento deve ser maior que zero (R$ 0,00).');
-  }
+  const rawAmount = payload.amount ?? payload.valor ?? payload.value ?? payload.price;
+  const numAmount = parseCurrencyAmount(rawAmount);
+
+  const clientName = (payload.clientName || payload.nomeCliente || payload.paciente || payload.client || '').trim();
+  const rawDesc = (payload.description || payload.procedimento || payload.servico || '').trim();
+  const rawDate = payload.date || payload.data;
+  const rawMonth = payload.referenceMonth || payload.mesReferencia;
 
   const { date: defaultDate, month: defaultMonth, day: defaultDay } = getBrazilCurrentDate();
-  const effectiveDate = payload.date && /^\d{4}-\d{2}-\d{2}$/.test(payload.date) ? payload.date : defaultDate;
+  const effectiveDate = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : defaultDate;
   const effectiveMonth =
-    payload.referenceMonth && /^\d{4}-\d{2}$/.test(payload.referenceMonth)
-      ? payload.referenceMonth
+    rawMonth && /^\d{4}-\d{2}$/.test(rawMonth)
+      ? rawMonth
       : effectiveDate.substring(0, 7) || defaultMonth;
 
-  const clientName = payload.clientName?.trim();
-  const rawDesc = payload.description?.trim();
-  const finalDesc = rawDesc || (clientName ? `MASSOTERAPIA - ${clientName}` : 'MASSOTERAPIA');
-  const finalSource = payload.category?.trim() || payload.source?.trim() || 'MASSOTERAPIA';
-  const finalStatus = payload.status === 'PENDING' ? 'PENDING' : 'RECEIVED';
-  const alsoAddToSalary = payload.alsoAddToSalary !== false; // Padrão: true
+  // Identificação do tipo de lançamento
+  const isPackageRegistration =
+    payload.isPackage === true ||
+    payload.ePacote === true ||
+    payload.tipo === 'PACOTE' ||
+    Boolean(payload.packageName || payload.nomePacote);
+
+  const isPrepaidPackageSession =
+    payload.isPackageSession === true ||
+    payload.sessaoDePacote === true ||
+    payload.belongsToPackage === true ||
+    payload.tipo === 'PACOTE_SESSAO' ||
+    (numAmount === 0 && Boolean(clientName));
 
   const timestamp = Date.now();
   const randomSuffix = Math.random().toString(36).substring(2, 8);
   const incomeId = `inc-ext-${timestamp}-${randomSuffix}`;
   const salaryId = `sal-ext-${timestamp}-${randomSuffix}`;
 
+  // =========================================================================
+  // CENÁRIO 1: Sessão de Pacote Já Pago (Evita Duplicar Cobrança Financeira)
+  // =========================================================================
+  if (isPrepaidPackageSession && !isPackageRegistration) {
+    const sessionNum = payload.sessionNumber || payload.numeroSessao;
+    const sessionDesc = rawDesc || (clientName
+      ? `MASSOTERAPIA - Sessão de Pacote${sessionNum ? ` #${sessionNum}` : ''} (${clientName})`
+      : 'MASSOTERAPIA - Sessão de Pacote Pré-Pago');
+
+    const logNotes = [
+      clientName ? `Cliente: ${clientName}` : null,
+      sessionNum ? `Sessão nº: ${sessionNum}` : null,
+      payload.notes || payload.observacoes ? (payload.notes || payload.observacoes)?.trim() : null,
+      'Sessão vinculada a pacote pré-pago | Receita financeira já computada no cadastro do pacote',
+    ].filter(Boolean).join(' | ');
+
+    // Registra no log de auditoria da clínica
+    try {
+      await db.insert(systemIntegrationsLog).values({
+        id: `log-${timestamp}-${randomSuffix}`,
+        userId,
+        systemName: 'Gestão de Pessoas - Massoterapia',
+        action: 'SESSAO_PACOTE_PREPAGO',
+        amount: 0,
+        clientName: clientName || null,
+        description: sessionDesc,
+        payload: payload as any,
+        response: {
+          status: 'PREPAID_SESSION_RECORDED',
+          duplicatePrevented: true,
+          sessionNumber: sessionNum || null,
+          message: 'Sessão de pacote realizada e registrada sem duplicar receita financeira.',
+        } as any,
+        createdAt: new Date(),
+      });
+    } catch (err) {
+      console.warn('Aviso ao registrar log de sessão de pacote:', err);
+    }
+
+    return {
+      success: true,
+      isPackageSession: true,
+      duplicatePrevented: true,
+      action: 'SESSAO_PACOTE_PREPAGO',
+      clientName,
+      message: `Sessão do pacote (${clientName || 'Cliente'}) registrada com sucesso no histórico! Nenhuma cobrança duplicada foi gerada, pois o valor do pacote já foi computado no faturamento do mês.`,
+    };
+  }
+
+  // =========================================================================
+  // CENÁRIO 2 & 3: Cadastro de Pacote (Print 04) ou Sessão Avulsa (Print 03)
+  // =========================================================================
+  if (numAmount <= 0) {
+    throw new Error('O valor do atendimento ou pacote deve ser maior que zero (R$ 0,00).');
+  }
+
+  const packageName = (payload.packageName || payload.nomePacote || payload.titulo || '').trim();
+  const totalSessions = payload.totalSessions || payload.sessoes || payload.quantidadeSessoes || 0;
+
+  let finalDesc = '';
+  let actionType = 'ATENDIMENTO_SESSAO';
+
+  if (isPackageRegistration) {
+    actionType = 'CADASTRO_PACOTE';
+    const pkgTitle = packageName || (totalSessions > 0 ? `Pacote ${totalSessions} Sessões` : 'Pacote de Massoterapia');
+    finalDesc = `MASSOTERAPIA - Pacote: ${pkgTitle}${clientName ? ` (${clientName})` : ''}`;
+  } else {
+    actionType = 'ATENDIMENTO_SESSAO';
+    finalDesc = rawDesc || (clientName ? `MASSOTERAPIA - Sessão (${clientName})` : 'MASSOTERAPIA - Sessão');
+  }
+
+  const finalSource = payload.category?.trim() || payload.source?.trim() || 'MASSOTERAPIA';
+  const finalStatus = payload.status === 'PENDING' ? 'PENDING' : 'RECEIVED';
+  const alsoAddToSalary = payload.alsoAddToSalary !== false && payload.somarAoSalario !== false;
+
   const notesList = [
-    clientName ? `Cliente: ${clientName}` : null,
-    payload.notes ? payload.notes.trim() : null,
-    'Lançado via Sistema de Gestão de Pessoas (Massoterapia)',
+    clientName ? `Cliente/Paciente: ${clientName}` : null,
+    isPackageRegistration && totalSessions > 0 ? `Pacote: ${totalSessions} sessões contratadas` : null,
+    isPackageRegistration ? 'Valor cobrado uma única vez no mês' : null,
+    payload.notes || payload.observacoes ? (payload.notes || payload.observacoes)?.trim() : null,
+    'Lançado via Sistema de Gestão de Pessoas (Qi Zen Massoterapia)',
   ].filter(Boolean);
   const finalNotes = notesList.join(' | ');
 
-  // 1. Garantir que a categoria MASSOTERAPIA exista no banco para este usuário
+  // 1. Garantir que a categoria MASSOTERAPIA exista no banco PostgreSQL
   try {
     const existingCat = await db
       .select()
@@ -271,10 +389,12 @@ export async function registerMassoterapiaIncome(
 
   // 3. Inserir em salaries para somar como salário mensal fixo
   let salaryRecord = null;
+  const payDayNumber = parseInt(effectiveDate.substring(8, 10), 10) || defaultDay;
+  const salaryDesc = isPackageRegistration
+    ? `Salário - Massoterapia Pacote (${clientName ? clientName : packageName || 'Pacote'})`
+    : `Salário - Massoterapia (${clientName ? clientName : finalDesc})`;
+
   if (alsoAddToSalary) {
-    const payDayNumber = parseInt(effectiveDate.substring(8, 10), 10) || defaultDay;
-    const salaryDesc = `Salário - Massoterapia (${clientName ? clientName : finalDesc})`;
-    
     await db.insert(salaries).values({
       id: salaryId,
       userId,
@@ -284,7 +404,7 @@ export async function registerMassoterapiaIncome(
       payDay: Math.min(28, Math.max(1, payDayNumber)),
       status: finalStatus,
       active: true,
-      notes: `Lançamento integrado de Massoterapia somado ao Salário Fixo Mensal. ${finalNotes}`,
+      notes: `Lançamento de Massoterapia somado ao Salário Fixo Mensal. ${finalNotes}`,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -298,13 +418,52 @@ export async function registerMassoterapiaIncome(
     };
   }
 
-  // 4. Gravar no log de integrações para rastreabilidade
+  // 4. Sincronização direta com o Firestore do Firebase (se Admin Firestore estiver ativo)
+  if (adminDb) {
+    try {
+      await adminDb.collection('incomes').doc(incomeId).set({
+        id: incomeId,
+        userId,
+        amount: numAmount,
+        description: finalDesc,
+        origin: 'MASSOTERAPIA',
+        source: 'MASSOTERAPIA',
+        date: effectiveDate,
+        referenceMonth: effectiveMonth,
+        status: finalStatus,
+        notes: finalNotes,
+        isRecurring: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      if (alsoAddToSalary) {
+        await adminDb.collection('salaries').doc(salaryId).set({
+          id: salaryId,
+          userId,
+          amount: numAmount,
+          description: salaryDesc,
+          referenceMonth: effectiveMonth,
+          payDate: `${effectiveMonth}-${String(Math.min(28, Math.max(1, payDayNumber))).padStart(2, '0')}`,
+          status: finalStatus,
+          isStandardDefault: false,
+          notes: finalNotes,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    } catch (fsErr) {
+      console.warn('Aviso ao sincronizar diretamente com Firestore Admin:', fsErr);
+    }
+  }
+
+  // 5. Gravar no log de integrações para auditoria e histórico
   try {
     await db.insert(systemIntegrationsLog).values({
       id: `log-${timestamp}-${randomSuffix}`,
       userId,
       systemName: 'Gestão de Pessoas - Massoterapia',
-      action: 'ATENDIMENTO_MASSOTERAPIA',
+      action: actionType,
       amount: numAmount,
       clientName: clientName || null,
       description: finalDesc,
@@ -315,6 +474,7 @@ export async function registerMassoterapiaIncome(
         status: 'SUCCESS',
         amount: numAmount,
         month: effectiveMonth,
+        isPackage: isPackageRegistration,
       } as any,
       createdAt: new Date(),
     });
@@ -322,8 +482,14 @@ export async function registerMassoterapiaIncome(
     console.warn('Aviso ao registrar log de integração:', err);
   }
 
+  const successMessage = isPackageRegistration
+    ? `Pacote de Massoterapia (R$ ${numAmount.toFixed(2)}) cadastrado com sucesso! Valor único lançado em Renda Extra e somado ao Salário Mensal Fixo de ${effectiveMonth}.`
+    : `Atendimento de R$ ${numAmount.toFixed(2)} lançado com sucesso em Renda Extra (${finalSource}) e somado ao Salário Mensal Fixo de ${effectiveMonth}!`;
+
   return {
     success: true,
+    action: actionType,
+    isPackage: isPackageRegistration,
     income: {
       id: incomeId,
       userId,
@@ -337,9 +503,7 @@ export async function registerMassoterapiaIncome(
     },
     salary: salaryRecord,
     addedToSalary: alsoAddToSalary,
-    message: alsoAddToSalary
-      ? `Atendimento de R$ ${numAmount.toFixed(2)} lançado com sucesso em Renda Extra (${finalSource}) e somado ao Salário Mensal Fixo de ${effectiveMonth}!`
-      : `Atendimento de R$ ${numAmount.toFixed(2)} lançado com sucesso em Renda Extra (${finalSource})!`,
+    message: successMessage,
   };
 }
 

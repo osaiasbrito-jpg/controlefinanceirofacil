@@ -16,7 +16,7 @@ export const IncomeModal: React.FC<IncomeModalProps> = ({
   onClose,
   incomeToEdit,
 }) => {
-  const { selectedMonth, addIncome, updateIncome } = useFinance();
+  const { selectedMonth, addIncome, updateIncome, addSalary } = useFinance();
 
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurrenceDay, setRecurrenceDay] = useState<number>(10);
@@ -24,9 +24,10 @@ export const IncomeModal: React.FC<IncomeModalProps> = ({
   const [amount, setAmount] = useState<number | string>('');
   const [date, setDate] = useState(getCurrentDate());
   const [referenceMonth, setReferenceMonth] = useState(selectedMonth || getCurrentMonth());
-  const [origin, setOrigin] = useState('Freelance');
+  const [origin, setOrigin] = useState('MASSOTERAPIA');
   const [status, setStatus] = useState<IncomeStatus>('RECEIVED');
   const [notes, setNotes] = useState('');
+  const [alsoAddToSalary, setAlsoAddToSalary] = useState(true);
 
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -39,9 +40,10 @@ export const IncomeModal: React.FC<IncomeModalProps> = ({
       setAmount(incomeToEdit.amount);
       setDate(incomeToEdit.date || getCurrentDate());
       setReferenceMonth(incomeToEdit.referenceMonth || selectedMonth || getCurrentMonth());
-      setOrigin(incomeToEdit.origin || 'Freelance');
+      setOrigin(incomeToEdit.origin || 'MASSOTERAPIA');
       setStatus(incomeToEdit.status);
       setNotes(incomeToEdit.notes || '');
+      setAlsoAddToSalary(false);
     } else {
       setIsRecurring(false);
       setRecurrenceDay(10);
@@ -51,9 +53,10 @@ export const IncomeModal: React.FC<IncomeModalProps> = ({
       const initialDate = targetMonth === getCurrentMonth() ? getCurrentDate() : `${targetMonth}-01`;
       setDate(initialDate);
       setReferenceMonth(targetMonth);
-      setOrigin('1/3 de Férias');
+      setOrigin('MASSOTERAPIA');
       setStatus('RECEIVED');
       setNotes('');
+      setAlsoAddToSalary(true);
     }
     setErrorMsg(null);
   }, [incomeToEdit, isOpen, selectedMonth]);
@@ -109,6 +112,20 @@ export const IncomeModal: React.FC<IncomeModalProps> = ({
           recurrenceDay: isRecurring ? recurrenceDay : undefined,
           notes: notes.trim(),
         });
+
+        // Se marcado, soma também como Salário Mensal Fixo deste mês
+        if (alsoAddToSalary && addSalary) {
+          const payDayNumber = parseInt(effectiveDate.substring(8, 10), 10) || 10;
+          const salaryMonth = targetRefMonth === 'ALL' ? (selectedMonth || getCurrentMonth()) : targetRefMonth;
+          await addSalary({
+            description: `Salário - ${origin} (${description.trim()})`,
+            amount: numAmount,
+            referenceMonth: salaryMonth,
+            payDate: `${salaryMonth}-${String(Math.min(28, Math.max(1, payDayNumber))).padStart(2, '0')}`,
+            status,
+            notes: `Lançamento de Renda Extra (${origin}) somado ao Salário Fixo Mensal. ${notes.trim()}`.trim(),
+          });
+        }
       }
       onClose();
     } catch (err: any) {
@@ -350,6 +367,27 @@ export const IncomeModal: React.FC<IncomeModalProps> = ({
               </button>
             </div>
           </div>
+
+          {!incomeToEdit && (
+            <div className="p-3.5 bg-emerald-50/70 border border-emerald-200/80 rounded-2xl">
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={alsoAddToSalary}
+                  onChange={(e) => setAlsoAddToSalary(e.target.checked)}
+                  className="mt-0.5 rounded-md border-emerald-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                />
+                <div>
+                  <span className="text-xs font-extrabold text-emerald-950 block">
+                    Somar também ao Salário Mensal Fixo deste mês
+                  </span>
+                  <span className="text-[11px] text-emerald-700/90 leading-tight block mt-0.5">
+                    Entra diretamente na soma do valor ganho no mês (Massoterapia, Pacotes e atendimentos).
+                  </span>
+                </div>
+              </label>
+            </div>
+          )}
 
           <div>
             <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
