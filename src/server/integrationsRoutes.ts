@@ -42,10 +42,14 @@ export async function integrationAuthMiddleware(req: Request, res: Response, nex
     const email =
       req.body?.email ||
       req.body?.username ||
+      req.body?.user ||
+      req.body?.login ||
       (req.headers['x-user-email'] as string) ||
       (req.query.email as string);
     const password =
       req.body?.password ||
+      req.body?.senha ||
+      req.body?.pass ||
       (req.headers['x-user-password'] as string) ||
       (req.query.password as string);
 
@@ -209,18 +213,37 @@ const handleRegisterMassoterapia = async (req: Request, res: Response) => {
       });
     }
 
-    const { amount } = req.body;
-    if (amount === undefined || amount === null || amount === '') {
+    const isTest = req.body?.test === true || req.body?.action === 'test' || req.query?.test === 'true';
+    const rawAmount = req.body?.amount ?? req.body?.valor ?? req.body?.value ?? req.body?.price;
+
+    // Se for um teste de conexão/autenticação (como o botão "Testar Link & Senha" do sistema da clínica)
+    if (isTest || (rawAmount === undefined && !req.body?.clientName && !req.body?.nomeCliente)) {
+      return res.status(200).json({
+        success: true,
+        status: 'connected',
+        message: 'Conexão e autenticação com o Meu Controle Financeiro validadas com sucesso!',
+        category: 'MASSOTERAPIA',
+        targetUser: user.email,
+      });
+    }
+
+    if (rawAmount === undefined || rawAmount === null || rawAmount === '') {
       return res.status(400).json({
         success: false,
-        error: 'O valor do atendimento (amount) é obrigatório.',
+        error: 'O valor do atendimento (amount ou valor) é obrigatório.',
         example: { amount: 180.0, clientName: 'Nome do Cliente', description: 'Massagem Relaxante' },
       });
     }
 
+    const clientName = req.body?.clientName || req.body?.nomeCliente || req.body?.paciente || req.body?.client;
+    const description = req.body?.description || req.body?.procedimento || req.body?.servico || 'Atendimento Massoterapia';
+
     // Forçar a categoria para MASSOTERAPIA por padrão caso não enviada
     const payload = {
       ...req.body,
+      amount: rawAmount,
+      clientName,
+      description,
       category: req.body.category || 'MASSOTERAPIA',
       source: req.body.source || 'MASSOTERAPIA',
       alsoAddToSalary: req.body.alsoAddToSalary !== false, // Padrão: true (atende ao requisito 3)
@@ -246,11 +269,30 @@ const handleRegisterMassoterapia = async (req: Request, res: Response) => {
 integrationsRouter.post('/massoterapia', integrationAuthMiddleware, handleRegisterMassoterapia);
 integrationsRouter.post('/income', integrationAuthMiddleware, handleRegisterMassoterapia);
 
+integrationsRouter.get('/massoterapia', (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    status: 'online',
+    message: 'Endpoint de integração de Massoterapia ativo. Envie requisições POST autenticadas para registrar atendimentos.',
+    category: 'MASSOTERAPIA',
+    defaultAction: 'POST /api/integrations/massoterapia',
+  });
+});
+
+integrationsRouter.get('/income', (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    status: 'online',
+    message: 'Endpoint de integração de Renda Extra ativo.',
+    category: 'MASSOTERAPIA',
+  });
+});
+
 /**
  * GET /api/integrations/history
  * Consulta os lançamentos e histórico de atendimentos integrados
  */
-integrationsRouter.get('/history', integrationAuthMiddleware, async (req: Request, res: Response) => {
+const handleGetHistory = async (req: Request, res: Response) => {
   try {
     const user = (req as any).integrationUser;
     const logs = await getIntegrationHistory(user.uid, 100);
@@ -267,4 +309,7 @@ integrationsRouter.get('/history', integrationAuthMiddleware, async (req: Reques
       details: err.message,
     });
   }
-});
+};
+
+integrationsRouter.get('/history', integrationAuthMiddleware, handleGetHistory);
+integrationsRouter.post('/history', integrationAuthMiddleware, handleGetHistory);

@@ -54,7 +54,14 @@ export const IntegracoesView: React.FC = () => {
   const [history, setHistory] = useState<IntegrationLogItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://meucontrolefinanceiro.app';
+  // URL Oficial do Cloud Run (Google AI Studio) onde o backend Node.js + PostgreSQL roda 24/7
+  const CLOUD_RUN_URL = 'https://ais-pre-ca2j6yzl6qm4otgueyocuu-440149738355.us-east1.run.app';
+  const isNetlifyHost = typeof window !== 'undefined' && window.location.hostname.includes('netlify.app');
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : CLOUD_RUN_URL;
+  // Endpoint efetivo recomendado para o outro sistema (Google AI Studio)
+  const officialEndpointUrl = `${CLOUD_RUN_URL}/api/integrations/massoterapia`;
+  const relativeEndpointUrl = `${baseUrl}/api/integrations/massoterapia`;
+
   const integrationEmail = userProfile?.email || currentUser?.email || 'osaiasbrito@gmail.com';
   const integrationPassword = 'Ojf6994@#gestaoPessoas';
 
@@ -64,20 +71,61 @@ export const IntegracoesView: React.FC = () => {
     setTimeout(() => setCopiedKey(null), 2500);
   };
 
+  /**
+   * Chamada resiliente para o backend:
+   * 1. Se estiver no Netlify ou se a rota local responder com HTML (SPA fallback),
+   *    faz fallback automático para a URL do Cloud Run.
+   * 2. Evita o erro 'Unexpected token <, "<!DOCTYPE..." is not valid JSON'.
+   */
+  const safeIntegrationPost = async (path: string, body: any) => {
+    const urlsToTry = isNetlifyHost
+      ? [`${CLOUD_RUN_URL}${path}`, path]
+      : [path, `${CLOUD_RUN_URL}${path}`];
+
+    let lastErrorMsg = 'Falha ao conectar com o serviço';
+
+    for (const targetUrl of urlsToTry) {
+      try {
+        const res = await fetch(targetUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        const text = await res.text();
+        // Se a resposta for uma página HTML (ex: Netlify estático)
+        if (text.trim().startsWith('<') || text.includes('<!DOCTYPE')) {
+          lastErrorMsg = 'A rota retornou HTML estático em vez do backend API Express.';
+          continue; // Tenta o fallback no Cloud Run
+        }
+
+        try {
+          const json = JSON.parse(text);
+          return { ok: res.ok, status: res.status, data: json, usedUrl: targetUrl };
+        } catch {
+          lastErrorMsg = 'A resposta recebida não pôde ser interpretada como JSON.';
+          continue;
+        }
+      } catch (err: any) {
+        lastErrorMsg = err.message || 'Erro de rede';
+      }
+    }
+
+    throw new Error(lastErrorMsg);
+  };
+
   const fetchHistory = async () => {
     setLoadingHistory(true);
     try {
-      const res = await fetch('/api/integrations/history', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: integrationEmail, password: integrationPassword }),
+      const { ok, data } = await safeIntegrationPost('/api/integrations/history', {
+        email: integrationEmail,
+        password: integrationPassword,
       });
-      if (res.ok) {
-        const data = await res.json();
+      if (ok && data.history) {
         setHistory(data.history || []);
       }
     } catch (err) {
-      console.error('Erro ao buscar histórico de integrações:', err);
+      console.warn('Aviso ao buscar histórico de integrações:', err);
     } finally {
       setLoadingHistory(false);
     }
@@ -93,27 +141,22 @@ export const IntegracoesView: React.FC = () => {
     setTestResult(null);
 
     try {
-      const res = await fetch('/api/integrations/massoterapia', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: integrationEmail,
-          password: integrationPassword,
-          amount: testAmount,
-          clientName: testClientName,
-          description: testDescription || 'Atendimento Massoterapia',
-          date: testDate,
-          category: 'MASSOTERAPIA',
-          alsoAddToSalary: true,
-        }),
+      const { ok, data, usedUrl } = await safeIntegrationPost('/api/integrations/massoterapia', {
+        email: integrationEmail,
+        password: integrationPassword,
+        amount: testAmount,
+        clientName: testClientName,
+        description: testDescription || 'Atendimento Massoterapia',
+        date: testDate,
+        category: 'MASSOTERAPIA',
+        alsoAddToSalary: true,
       });
 
-      const data = await res.json();
-      if (res.ok && data.success) {
+      if (ok && data.success) {
         setTestResult({
           success: true,
           message: data.message || 'Atendimento lançado com sucesso!',
-          data: data.data,
+          data: { ...data.data, usedUrl },
         });
         // Atualiza os dados do frontend em tempo real
         if (refreshDataFromPostgres) {
@@ -130,7 +173,7 @@ export const IntegracoesView: React.FC = () => {
     } catch (err: any) {
       setTestResult({
         success: false,
-        message: 'Erro ao conectar à API: ' + (err.message || 'Falha de rede'),
+        message: 'Erro ao conectar à API: ' + (err.message || 'Falha de comunicação'),
       });
     } finally {
       setLoadingTest(false);
@@ -143,7 +186,8 @@ export const IntegracoesView: React.FC = () => {
 // Chame esta funcao ao concluir um atendimento de massoterapia
 // ================================================================
 async function lancarAtendimentoFinanceiro(dadosAtendimento) {
-  const URL_FINANCEIRO = '${baseUrl}/api/integrations/massoterapia';
+  // URL Oficial de Alta Disponibilidade (Google AI Studio & Cloud Run)
+  const URL_FINANCEIRO = '${officialEndpointUrl}';
 
   const payload = {
     // 1. Credenciais de Acesso (solicitadas pelo financeiro)
@@ -186,7 +230,7 @@ async function lancarAtendimentoFinanceiro(dadosAtendimento) {
 
 // 1. Solicita autenticacao com usuario e senha
 async function obterTokenIntegracao() {
-  const res = await fetch('${baseUrl}/api/integrations/auth', {
+  const res = await fetch('${CLOUD_RUN_URL}/api/integrations/auth', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -200,7 +244,7 @@ async function obterTokenIntegracao() {
 
 // 2. Realiza o lancamento do atendimento de Massoterapia
 async function enviarMassoterapiaComToken(token, atendimento) {
-  const res = await fetch('${baseUrl}/api/integrations/massoterapia', {
+  const res = await fetch('${officialEndpointUrl}', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -218,7 +262,7 @@ async function enviarMassoterapiaComToken(token, atendimento) {
 }`;
 
   const codeCurl = `# Testar lancamento direto via terminal (cURL)
-curl -X POST "${baseUrl}/api/integrations/massoterapia" \\
+curl -X POST "${officialEndpointUrl}" \\
   -H "Content-Type: application/json" \\
   -d '{
     "email": "${integrationEmail}",
@@ -327,15 +371,49 @@ curl -X POST "${baseUrl}/api/integrations/massoterapia" \\
             </p>
 
             <div className="space-y-3">
-              {/* Endpoint Base */}
+              {/* Endpoint Oficial Cloud Run (Google AI Studio) */}
+              <div className="p-3.5 bg-emerald-50/80 rounded-2xl border border-emerald-200">
+                <div className="flex justify-between items-center mb-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-extrabold text-emerald-800 uppercase tracking-wider">
+                      URL Oficial Recomendada (Cloud Run)
+                    </span>
+                    <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-200/70 text-emerald-900">
+                      Conexão Direta
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => copyToClipboard(officialEndpointUrl, 'official-endpoint')}
+                    className="text-[11px] text-emerald-700 font-bold flex items-center gap-1 hover:underline"
+                  >
+                    {copiedKey === 'official-endpoint' ? (
+                      <>
+                        <Check className="w-3 h-3 text-emerald-600" /> Copiado!
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3 h-3" /> Copiar URL
+                      </>
+                    )}
+                  </button>
+                </div>
+                <code className="text-[11px] font-mono text-emerald-950 break-all select-all font-semibold block bg-white/70 p-2 rounded-xl border border-emerald-100">
+                  {officialEndpointUrl}
+                </code>
+                <p className="text-[10px] text-emerald-700 mt-1.5 font-medium leading-snug">
+                  ✨ <strong>Cole esta URL no sistema da clínica (Qi Zen)</strong> no campo <em>"Link para integrar o sistema"</em> para eliminar o erro de falha na comunicação.
+                </p>
+              </div>
+
+              {/* Endpoint Secundário / Netlify Proxy */}
               <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
                 <div className="flex justify-between items-center mb-1">
                   <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                    Endpoint de Lançamento
+                    URL Secundária (Netlify / Domínio Atual)
                   </span>
                   <button
-                    onClick={() => copyToClipboard(`${baseUrl}/api/integrations/massoterapia`, 'endpoint')}
-                    className="text-[11px] text-emerald-600 font-bold flex items-center gap-1 hover:underline"
+                    onClick={() => copyToClipboard(relativeEndpointUrl, 'endpoint')}
+                    className="text-[11px] text-slate-600 font-bold flex items-center gap-1 hover:underline"
                   >
                     {copiedKey === 'endpoint' ? (
                       <>
@@ -348,8 +426,8 @@ curl -X POST "${baseUrl}/api/integrations/massoterapia" \\
                     )}
                   </button>
                 </div>
-                <code className="text-xs font-mono text-slate-800 break-all select-all font-semibold">
-                  {baseUrl}/api/integrations/massoterapia
+                <code className="text-[11px] font-mono text-slate-700 break-all select-all font-semibold block">
+                  {relativeEndpointUrl}
                 </code>
               </div>
 
