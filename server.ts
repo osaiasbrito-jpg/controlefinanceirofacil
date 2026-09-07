@@ -15,8 +15,8 @@ import {
 import { ensureDatabaseTables } from './src/db/init';
 import { integrationsRouter } from './src/server/integrationsRoutes';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __filenameSafe = typeof import.meta !== 'undefined' && import.meta.url ? fileURLToPath(import.meta.url) : (process.argv[1] || '');
+const __dirnameSafe = __filenameSafe ? path.dirname(__filenameSafe) : process.cwd();
 
 async function startServer() {
   // Initialize Database Tables in PostgreSQL
