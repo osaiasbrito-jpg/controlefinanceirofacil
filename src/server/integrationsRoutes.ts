@@ -21,11 +21,15 @@ export const integrationsRouter = Router();
  */
 export async function integrationAuthMiddleware(req: Request, res: Response, next: Function) {
   try {
-    // 1. Bearer Token no header Authorization
     const authHeader = req.headers.authorization;
+    let bearerToken = '';
     if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.substring(7).trim();
-      const verified = verifyIntegrationToken(token);
+      bearerToken = authHeader.substring(7).trim();
+    }
+
+    // 1. Bearer Token no header Authorization (JWT/HMAC)
+    if (bearerToken) {
+      const verified = verifyIntegrationToken(bearerToken);
       if (verified.valid && verified.user) {
         (req as any).integrationUser = verified.user;
         return next();
@@ -48,13 +52,17 @@ export async function integrationAuthMiddleware(req: Request, res: Response, nex
       req.body?.user ||
       req.body?.login ||
       (req.headers['x-user-email'] as string) ||
-      (req.query.email as string);
+      (req.query.email as string) ||
+      'osaiasbrito@gmail.com'; // Default para a conta de integração do sistema
+
     const password =
       req.body?.password ||
       req.body?.senha ||
       req.body?.pass ||
+      (req.headers['x-access-password'] as string) ||
       (req.headers['x-user-password'] as string) ||
-      (req.query.password as string);
+      (req.query.password as string) ||
+      bearerToken; // Suporta envio de senha via Authorization: Bearer <password>
 
     if (email && password) {
       const user = await validateIntegrationCredentials(email, password);
@@ -76,7 +84,7 @@ export async function integrationAuthMiddleware(req: Request, res: Response, nex
       success: false,
       error: 'Autenticação necessária para integração de sistemas.',
       message:
-        'Envie o Header "Authorization: Bearer <token>" obtido em /api/integrations/auth ou envie "email" e "password" diretamente no corpo JSON da requisição.',
+        'Credenciais de acesso ausentes ou inválidas. Envie "email" e "password" no corpo JSON ou nos headers Authorization/x-access-password.',
       docs: '/api/integrations/status',
     });
   } catch (err: any) {
@@ -216,17 +224,28 @@ const handleRegisterMassoterapia = async (req: Request, res: Response) => {
       });
     }
 
-    const isTest = req.body?.test === true || req.body?.action === 'test' || req.query?.test === 'true';
     const rawAmount = req.body?.amount ?? req.body?.valor ?? req.body?.value ?? req.body?.price;
 
-    // Se for um teste de conexão/autenticação (como o botão "Testar Link & Senha" do sistema da clínica)
-    if (isTest || (rawAmount === undefined && !req.body?.clientName && !req.body?.nomeCliente)) {
+    const isTest =
+      req.body?.action === 'TESTE_CONEXAO' ||
+      req.body?.action === 'test' ||
+      req.body?.action === 'TEST' ||
+      req.body?.test === true ||
+      req.query?.test === 'true';
+
+    // Se for um teste de conexão/autenticação (como o botão "Testar Conexão Agora" do sistema da clínica)
+    if (isTest || (rawAmount === undefined && !req.body?.clientName && !req.body?.nomeCliente && !req.body?.description)) {
       return res.status(200).json({
         success: true,
-        status: 'connected',
-        message: 'Conexão e autenticação com o Meu Controle Financeiro validadas com sucesso!',
-        category: 'MASSOTERAPIA',
-        targetUser: user.email,
+        status: 200,
+        message: 'Conexão estabelecida com sucesso (HTTP 200)! Sistema Financeiro online e pronto para receber lançamentos.',
+        data: {
+          status: 'online',
+          endpoint: '/api/integrations/massoterapia',
+          category: req.body?.category || req.body?.section || 'MASSOTERAPIA',
+          authenticatedUser: user.email,
+          validatedAt: new Date().toISOString(),
+        },
       });
     }
 
@@ -251,28 +270,80 @@ const handleRegisterMassoterapia = async (req: Request, res: Response) => {
       });
     }
 
-    const clientName = req.body?.clientName || req.body?.nomeCliente || req.body?.paciente || req.body?.client;
-    const description = req.body?.description || req.body?.procedimento || req.body?.servico || 'Atendimento Massoterapia';
+    let numAmount = 0;
+    if (typeof rawAmount === 'number') {
+      numAmount = rawAmount;
+    } else if (typeof rawAmount === 'string') {
+      numAmount = parseFloat(rawAmount.replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+    }
+
+    if (isPackageSession) {
+      numAmount = 0;
+    }
+
+    const clientName = req.body?.clientName || req.body?.nomeCliente || req.body?.paciente || req.body?.client || 'Cliente Massoterapia';
+    const packageName = req.body?.packageName || req.body?.nomePacote || null;
+    const totalSessions = req.body?.totalSessions || req.body?.sessoes || req.body?.quantidadeSessoes || null;
+    const sessionNumber = req.body?.sessionNumber || req.body?.numeroSessao || null;
+    const category = req.body?.category || req.body?.categoria || req.body?.section || 'MASSOTERAPIA';
+
+    let defaultDesc = 'Atendimento Massoterapia';
+    if (isPackage) {
+      defaultDesc = `Pacote ${packageName || 'Massoterapia'}${totalSessions ? ` (${totalSessions} sessões)` : ''}`;
+    } else if (isPackageSession) {
+      defaultDesc = `Sessão #${sessionNumber || 1} de Pacote - ${packageName || 'Massoterapia'}`;
+    }
+
+    const description = req.body?.description || req.body?.procedimento || req.body?.servico || defaultDesc;
 
     // Forçar a categoria para MASSOTERAPIA por padrão caso não enviada
     const payload = {
       ...req.body,
       isPackage: isPackage || req.body.isPackage,
       isPackageSession,
-      amount: rawAmount ?? 0,
+      packageName,
+      totalSessions,
+      sessionNumber,
+      amount: numAmount,
+      valor: numAmount,
       clientName,
       description,
-      category: req.body.category || 'MASSOTERAPIA',
-      source: req.body.source || 'MASSOTERAPIA',
-      alsoAddToSalary: req.body.alsoAddToSalary !== false, // Padrão: true (atende ao requisito 3)
+      category,
+      source: category,
+      alsoAddToSalary: req.body.alsoAddToSalary !== false && req.body.somarAoSalario !== false,
     };
 
     const result = await registerMassoterapiaIncome(user.uid, payload);
 
-    return res.status(201).json({
+    let successMessage = 'Atendimento lançado no controle financeiro com sucesso!';
+    if (isPackage) {
+      successMessage = `Pacote "${packageName || 'Massoterapia'}" (${totalSessions || 4} sessões) cadastrado e somado ao salário fixo (R$ ${numAmount.toFixed(2)}) com sucesso!`;
+    } else if (isPackageSession) {
+      successMessage = `Presença na sessão de pacote (${packageName || 'Massoterapia'}) registrada sem duplicar cobrança (R$ 0,00).`;
+    } else {
+      successMessage = `Atendimento avulso de R$ ${numAmount.toFixed(2)} lançado na categoria MASSOTERAPIA e somado ao salário fixo com sucesso!`;
+    }
+
+    return res.status(200).json({
       success: true,
-      message: result.message,
-      data: result,
+      message: result.message || successMessage,
+      data: {
+        email: user.email,
+        clientName,
+        description,
+        category,
+        amount: numAmount,
+        valor: numAmount,
+        date: payload.date || new Date().toISOString().substring(0, 10),
+        alsoAddToSalary: payload.alsoAddToSalary,
+        isPackage: Boolean(isPackage),
+        packageName,
+        totalSessions,
+        isPackageSession: Boolean(isPackageSession),
+        sessionNumber,
+        receivedAt: new Date().toISOString(),
+        ...result,
+      },
     });
   } catch (err: any) {
     console.error('Erro ao lançar atendimento de massoterapia via integração:', err);
@@ -285,6 +356,7 @@ const handleRegisterMassoterapia = async (req: Request, res: Response) => {
 };
 
 integrationsRouter.post('/massoterapia', integrationAuthMiddleware, handleRegisterMassoterapia);
+integrationsRouter.post('/test-connection', integrationAuthMiddleware, handleRegisterMassoterapia);
 integrationsRouter.post('/income', integrationAuthMiddleware, handleRegisterMassoterapia);
 integrationsRouter.post('/pacote', integrationAuthMiddleware, handleRegisterMassoterapia);
 integrationsRouter.post('/pacotes', integrationAuthMiddleware, handleRegisterMassoterapia);

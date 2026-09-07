@@ -245,18 +245,19 @@ export async function registerMassoterapiaIncome(
       : effectiveDate.substring(0, 7) || defaultMonth;
 
   // Identificação do tipo de lançamento
-  const isPackageRegistration =
-    payload.isPackage === true ||
-    payload.ePacote === true ||
-    payload.tipo === 'PACOTE' ||
-    Boolean(payload.packageName || payload.nomePacote);
-
   const isPrepaidPackageSession =
     payload.isPackageSession === true ||
     payload.sessaoDePacote === true ||
     payload.belongsToPackage === true ||
     payload.tipo === 'PACOTE_SESSAO' ||
     (numAmount === 0 && Boolean(clientName));
+
+  const isPackageRegistration =
+    !isPrepaidPackageSession &&
+    (payload.isPackage === true ||
+      payload.ePacote === true ||
+      payload.tipo === 'PACOTE' ||
+      (Boolean(payload.packageName || payload.nomePacote) && numAmount > 0));
 
   const timestamp = Date.now();
   const randomSuffix = Math.random().toString(36).substring(2, 8);
