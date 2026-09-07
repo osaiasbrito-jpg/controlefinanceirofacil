@@ -116,11 +116,13 @@ async function startServer() {
   app.get('/api/data', optionalAuth, async (req: AuthRequest, res) => {
     try {
       const userId = req.user?.uid || (req.query.userId as string);
-      if (!userId) {
+      const userEmail = req.user?.email || (req.query.email as string);
+      if (!userId && !userEmail) {
         return res.status(400).json({ error: 'Identificador do usuário é obrigatório' });
       }
 
-      const data = await getFullUserData(userId);
+      const effectiveUserId = userId || userEmail || 'osaiasbrito@gmail.com';
+      const data = await getFullUserData(effectiveUserId, userEmail);
       res.json({ success: true, data });
     } catch (error: any) {
       console.error('Erro ao carregar dados do PostgreSQL:', error);

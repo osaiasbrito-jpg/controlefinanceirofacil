@@ -43,14 +43,18 @@ export async function syncUserWithPostgres(user: { uid: string; email?: string |
   }
 }
 
-export async function loadUserDataFromPostgres(userId: string, idToken?: string) {
+export async function loadUserDataFromPostgres(userId: string, idToken?: string, email?: string) {
   try {
     const headers: Record<string, string> = {};
     if (idToken) {
       headers['Authorization'] = `Bearer ${idToken}`;
     }
 
-    const res = await fetch(`/api/data?userId=${encodeURIComponent(userId)}`, {
+    const params = new URLSearchParams();
+    if (userId) params.set('userId', userId);
+    if (email) params.set('email', email);
+
+    const res = await fetch(`/api/data?${params.toString()}`, {
       method: 'GET',
       headers,
     });

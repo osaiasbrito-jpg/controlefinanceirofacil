@@ -12,7 +12,7 @@ import {
   budgets,
   backups,
 } from './schema';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql, or, inArray } from 'drizzle-orm';
 import { ensureDatabaseTables } from './init';
 
 export interface SyncDataPayload {
@@ -158,8 +158,40 @@ export async function upsertUserSettings(userId: string, data: any) {
 }
 
 // Full Financial Data Fetch for User
-export async function getFullUserData(userId: string) {
+export async function getFullUserData(userId: string, userEmail?: string) {
   try {
+    const uidsToMatch = new Set<string>();
+    if (userId) uidsToMatch.add(userId);
+    if (userEmail) uidsToMatch.add(userEmail.toLowerCase().trim());
+
+    // Se for o superusuário Osaias Brito ou referenciar seu email/nome:
+    const isOsaias =
+      userId?.toLowerCase().includes('osaias') ||
+      userEmail?.toLowerCase().includes('osaias') ||
+      userId?.toLowerCase() === 'osaiasbrito@gmail.com' ||
+      userEmail?.toLowerCase() === 'osaiasbrito@gmail.com';
+
+    if (isOsaias) {
+      uidsToMatch.add('osaiasbrito@gmail.com');
+      uidsToMatch.add('super_admin_osaiasbrito');
+    }
+
+    // Buscar no banco se existe correspondência na tabela users
+    try {
+      const userRows = await db
+        .select()
+        .from(users)
+        .where(or(eq(users.uid, userId), eq(users.email, (userEmail || userId).toLowerCase())));
+      for (const u of userRows) {
+        if (u.uid) uidsToMatch.add(u.uid);
+        if (u.email) uidsToMatch.add(u.email);
+      }
+    } catch {}
+
+    const uidList = Array.from(uidsToMatch).filter(Boolean);
+    const filterCondition = (column: any) =>
+      uidList.length === 1 ? eq(column, uidList[0]) : inArray(column, uidList);
+
     const [
       userSalaries,
       userIncomes,
@@ -171,14 +203,14 @@ export async function getFullUserData(userId: string) {
       userBudgets,
       settings,
     ] = await Promise.all([
-      db.select().from(salaries).where(eq(salaries.userId, userId)),
-      db.select().from(extraIncomes).where(eq(extraIncomes.userId, userId)),
-      db.select().from(expenses).where(eq(expenses.userId, userId)),
-      db.select().from(creditCards).where(eq(creditCards.userId, userId)),
-      db.select().from(customPaymentMethods).where(eq(customPaymentMethods.userId, userId)),
-      db.select().from(installmentPurchases).where(eq(installmentPurchases.userId, userId)),
-      db.select().from(categories).where(eq(categories.userId, userId)),
-      db.select().from(budgets).where(eq(budgets.userId, userId)),
+      db.select().from(salaries).where(filterCondition(salaries.userId)),
+      db.select().from(extraIncomes).where(filterCondition(extraIncomes.userId)),
+      db.select().from(expenses).where(filterCondition(expenses.userId)),
+      db.select().from(creditCards).where(filterCondition(creditCards.userId)),
+      db.select().from(customPaymentMethods).where(filterCondition(customPaymentMethods.userId)),
+      db.select().from(installmentPurchases).where(filterCondition(installmentPurchases.userId)),
+      db.select().from(categories).where(filterCondition(categories.userId)),
+      db.select().from(budgets).where(filterCondition(budgets.userId)),
       getUserSettings(userId),
     ]);
 

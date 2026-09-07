@@ -790,7 +790,12 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         token = await currentUser.getIdToken();
       } catch {}
 
-      const pgData = await loadUserDataFromPostgres(currentUser.uid, token);
+      const isOsaias =
+        currentUser.email?.toLowerCase() === 'osaiasbrito@gmail.com' ||
+        currentUser.uid?.toLowerCase().includes('osaias');
+      const targetUserId = isOsaias ? 'osaiasbrito@gmail.com' : (currentUser.uid || 'osaiasbrito@gmail.com');
+
+      const pgData = await loadUserDataFromPostgres(targetUserId, token, currentUser.email || undefined);
       if (!pgData) return;
 
       // 1. Mesclar Incomes do PostgreSQL (ex: Atendimentos de MASSOTERAPIA)
@@ -800,25 +805,28 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
           prev.forEach((item) => map.set(item.id, item));
           let hasNew = false;
           pgData.incomes.forEach((pgInc: any) => {
+            const formatted: ExtraIncome = {
+              id: pgInc.id,
+              userId: currentUser.uid || pgInc.userId || 'osaiasbrito@gmail.com',
+              description: pgInc.description,
+              amount: Number(pgInc.amount),
+              referenceMonth: pgInc.referenceMonth || (pgInc.date ? pgInc.date.substring(0, 7) : ''),
+              date: pgInc.date,
+              origin: pgInc.source || 'MASSOTERAPIA',
+              status: pgInc.status === 'PENDING' ? 'PENDING' : 'RECEIVED',
+              notes: pgInc.notes || '',
+              createdAt: pgInc.createdAt || new Date().toISOString(),
+              updatedAt: pgInc.updatedAt || new Date().toISOString(),
+            };
+
             if (!map.has(pgInc.id)) {
-              const formatted: ExtraIncome = {
-                id: pgInc.id,
-                userId: pgInc.userId || currentUser.uid,
-                description: pgInc.description,
-                amount: Number(pgInc.amount),
-                referenceMonth: pgInc.referenceMonth || (pgInc.date ? pgInc.date.substring(0, 7) : ''),
-                date: pgInc.date,
-                origin: pgInc.source || 'MASSOTERAPIA',
-                status: pgInc.status === 'PENDING' ? 'PENDING' : 'RECEIVED',
-                notes: pgInc.notes || '',
-                createdAt: pgInc.createdAt || new Date().toISOString(),
-                updatedAt: pgInc.updatedAt || new Date().toISOString(),
-              };
               map.set(pgInc.id, formatted);
               hasNew = true;
-              if (db) {
-                setDoc(doc(db, 'incomes', pgInc.id), sanitizeData(formatted)).catch(() => {});
-              }
+            }
+
+            // Grava com segurança no Firestore do cliente autenticado
+            if (db && currentUser) {
+              setDoc(doc(db, 'incomes', pgInc.id), sanitizeData(formatted), { merge: true }).catch(() => {});
             }
           });
           return hasNew ? Array.from(map.values()) : prev;
@@ -832,23 +840,26 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
           prev.forEach((item) => map.set(item.id, item));
           let hasNew = false;
           pgData.salaries.forEach((pgSal: any) => {
+            const formatted: Salary = {
+              id: pgSal.id,
+              userId: currentUser.uid || pgSal.userId || 'osaiasbrito@gmail.com',
+              amount: Number(pgSal.amount),
+              referenceMonth: pgSal.referenceMonth,
+              description: pgSal.description,
+              payDate: pgSal.payDate || `${pgSal.referenceMonth || '2026-09'}-05`,
+              status: pgSal.status === 'PENDING' ? 'PENDING' : 'RECEIVED',
+              createdAt: pgSal.createdAt || new Date().toISOString(),
+              updatedAt: pgSal.updatedAt || new Date().toISOString(),
+            };
+
             if (!map.has(pgSal.id)) {
-              const formatted: Salary = {
-                id: pgSal.id,
-                userId: pgSal.userId || currentUser.uid,
-                amount: Number(pgSal.amount),
-                referenceMonth: pgSal.referenceMonth,
-                description: pgSal.description,
-                payDate: pgSal.payDate || `${pgSal.referenceMonth || '2026-09'}-05`,
-                status: pgSal.status === 'PENDING' ? 'PENDING' : 'RECEIVED',
-                createdAt: pgSal.createdAt || new Date().toISOString(),
-                updatedAt: pgSal.updatedAt || new Date().toISOString(),
-              };
               map.set(pgSal.id, formatted);
               hasNew = true;
-              if (db) {
-                setDoc(doc(db, 'salaries', pgSal.id), sanitizeData(formatted)).catch(() => {});
-              }
+            }
+
+            // Grava com segurança no Firestore do cliente autenticado
+            if (db && currentUser) {
+              setDoc(doc(db, 'salaries', pgSal.id), sanitizeData(formatted), { merge: true }).catch(() => {});
             }
           });
           return hasNew ? Array.from(map.values()) : prev;

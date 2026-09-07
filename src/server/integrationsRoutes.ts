@@ -1,4 +1,7 @@
 import { Router, Request, Response } from 'express';
+import { db } from '../db';
+import { extraIncomes } from '../db/schema';
+import { eq, and, or, like, desc } from 'drizzle-orm';
 import {
   validateIntegrationCredentials,
   generateIntegrationToken,
@@ -288,19 +291,77 @@ integrationsRouter.post('/pacotes', integrationAuthMiddleware, handleRegisterMas
 integrationsRouter.post('/sessao', integrationAuthMiddleware, handleRegisterMassoterapia);
 integrationsRouter.post('/sessoes', integrationAuthMiddleware, handleRegisterMassoterapia);
 
-integrationsRouter.get('/massoterapia', (_req: Request, res: Response) => {
-  res.json({
-    success: true,
-    status: 'online',
-    message: 'Endpoint de integração de Massoterapia ativo. Envie requisições POST autenticadas para registrar atendimentos e pacotes.',
-    category: 'MASSOTERAPIA',
-    defaultAction: 'POST /api/integrations/massoterapia',
-    supportedEndpoints: [
-      '/api/integrations/massoterapia (Sessão ou Pacote)',
-      '/api/integrations/pacote (Cadastro de Pacote com valor único)',
-      '/api/integrations/sessao (Atendimento de Sessão Individual)',
-    ],
-  });
+integrationsRouter.get('/massoterapia', async (req: Request, res: Response) => {
+  try {
+    const { date: today, month: currentMonth } = getBrazilCurrentDate();
+    const requestedMonth = (req.query.month as string) || (req.query.referenceMonth as string) || currentMonth;
+    const targetEmail = (req.query.email as string) || 'osaiasbrito@gmail.com';
+
+    // Buscar lançamentos de massoterapia na base de dados
+    const incomesList = await db
+      .select()
+      .from(extraIncomes)
+      .where(
+        and(
+          or(eq(extraIncomes.userId, targetEmail), eq(extraIncomes.userId, 'osaiasbrito@gmail.com')),
+          or(eq(extraIncomes.referenceMonth, requestedMonth), like(extraIncomes.date, `${requestedMonth}%`))
+        )
+      )
+      .orderBy(desc(extraIncomes.createdAt));
+
+    const massoterapiaIncomes = incomesList.filter(
+      (inc) =>
+        (inc.source && inc.source.toUpperCase().includes('MASSOTERAPIA')) ||
+        (inc.description && inc.description.toUpperCase().includes('MASSOTERAPIA')) ||
+        (inc.description && inc.description.toUpperCase().includes('MASSAGEM')) ||
+        (inc.notes && inc.notes.toUpperCase().includes('MASSOTERAPIA'))
+    );
+
+    const totalReceived = massoterapiaIncomes
+      .filter((i) => i.status !== 'PENDING')
+      .reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
+
+    const totalExpected = massoterapiaIncomes.reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
+
+    const formatter = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+    res.json({
+      success: true,
+      status: 'online',
+      connected: true,
+      category: 'MASSOTERAPIA',
+      session: 'MASSOTERAPIA',
+      referenceMonth: requestedMonth,
+      totalReceived,
+      totalReceivedFormatted: formatter.format(totalReceived),
+      totalExpected,
+      totalExpectedFormatted: formatter.format(totalExpected),
+      count: massoterapiaIncomes.length,
+      sessions: massoterapiaIncomes.map((s) => ({
+        id: s.id,
+        description: s.description,
+        amount: Number(s.amount),
+        date: s.date,
+        status: s.status,
+        notes: s.notes,
+      })),
+      message: `Integração online e sincronizada com sucesso. Total computado no mês (${requestedMonth}): ${formatter.format(totalReceived)} (${massoterapiaIncomes.length} atendimento(s)).`,
+      supportedEndpoints: [
+        'POST /api/integrations/massoterapia (Sessão ou Pacote)',
+        'POST /api/integrations/pacote (Cadastro de Pacote com valor único)',
+        'POST /api/integrations/sessao (Atendimento de Sessão Individual)',
+        'GET /api/integrations/massoterapia (Consulta de totais e status)',
+      ],
+    });
+  } catch (err: any) {
+    console.error('Erro no GET /massoterapia:', err);
+    res.json({
+      success: true,
+      status: 'online',
+      category: 'MASSOTERAPIA',
+      message: 'Endpoint de integração de Massoterapia ativo.',
+    });
+  }
 });
 
 integrationsRouter.get('/pacote', (_req: Request, res: Response) => {
