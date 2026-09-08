@@ -241,6 +241,7 @@ const defaultFilters: ExpenseFilters = {
   paymentMethod: 'ALL',
   cardId: 'ALL',
   status: 'ALL',
+  installmentType: 'ALL',
 };
 
 const FinanceContext = createContext<FinanceContextType | undefined>(undefined);
@@ -636,7 +637,13 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         snapshot.forEach((docSnap) => {
           const data = docSnap.data() as any;
           const refMonth = data.referenceMonth || (data.date ? data.date.substring(0, 7) : '');
-          list.push({ id: docSnap.id, ...data, referenceMonth: refMonth });
+          list.push({
+            id: docSnap.id,
+            ...data,
+            cardId: data.cardId || data.creditCardId || undefined,
+            cardName: data.cardName || data.creditCardName || undefined,
+            referenceMonth: refMonth,
+          });
         });
         setExpenses(list);
       },
@@ -865,6 +872,128 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
           return hasNew ? Array.from(map.values()) : prev;
         });
       }
+
+      // 3. Mesclar Credit Cards do PostgreSQL
+      if (Array.isArray(pgData.creditCards) && pgData.creditCards.length > 0) {
+        setCreditCards((prev) => {
+          const map = new Map<string, CreditCard>();
+          prev.forEach((c) => map.set(c.id, c));
+          let hasNew = false;
+          pgData.creditCards.forEach((pgCard: any) => {
+            const formatted: CreditCard = {
+              id: pgCard.id,
+              userId: currentUser.uid || pgCard.userId || 'osaiasbrito@gmail.com',
+              name: pgCard.name,
+              bank: pgCard.bank || 'Crédito',
+              totalLimit: Number(pgCard.totalLimit) || 0,
+              closingDay: Number(pgCard.closingDay) || 1,
+              dueDay: Number(pgCard.dueDay) || 10,
+              color: pgCard.color || '#8B5CF6',
+              isActive: pgCard.isActive !== false,
+              createdAt: pgCard.createdAt || new Date().toISOString(),
+              updatedAt: pgCard.updatedAt || new Date().toISOString(),
+            };
+            if (!map.has(pgCard.id)) {
+              map.set(pgCard.id, formatted);
+              hasNew = true;
+            }
+            if (db && currentUser) {
+              setDoc(doc(db, 'creditCards', pgCard.id), sanitizeData(formatted), { merge: true }).catch(() => {});
+            }
+          });
+          return hasNew ? Array.from(map.values()) : prev;
+        });
+      }
+
+      // 4. Mesclar Installment Purchases do PostgreSQL
+      if (Array.isArray(pgData.installmentPurchases) && pgData.installmentPurchases.length > 0) {
+        setInstallmentPurchases((prev) => {
+          const map = new Map<string, InstallmentPurchase>();
+          prev.forEach((p) => map.set(p.id, p));
+          let hasNew = false;
+          pgData.installmentPurchases.forEach((pgInst: any) => {
+            const formatted: InstallmentPurchase = {
+              id: pgInst.id,
+              userId: currentUser.uid || pgInst.userId || 'osaiasbrito@gmail.com',
+              title: pgInst.title,
+              totalAmount: Number(pgInst.totalAmount) || 0,
+              installmentCount: Number(pgInst.installmentCount) || 1,
+              monthlyAmount: pgInst.monthlyAmount ? Number(pgInst.monthlyAmount) : undefined,
+              isIndefinite: Boolean(pgInst.isIndefinite),
+              isInterrupted: Boolean(pgInst.isInterrupted),
+              startMonth: pgInst.startMonth || '2026-09',
+              cardId: pgInst.cardId || '',
+              cardName: pgInst.cardName || '',
+              categoryId: pgInst.categoryId || 'Geral',
+              categoryName: pgInst.categoryName || 'Geral',
+              status: pgInst.status || 'ACTIVE',
+              createdAt: pgInst.createdAt || new Date().toISOString(),
+              updatedAt: pgInst.updatedAt || new Date().toISOString(),
+            };
+            if (!map.has(pgInst.id)) {
+              map.set(pgInst.id, formatted);
+              hasNew = true;
+            }
+            if (db && currentUser) {
+              setDoc(doc(db, 'installmentPurchases', pgInst.id), sanitizeData(formatted), { merge: true }).catch(() => {});
+            }
+          });
+          return hasNew ? Array.from(map.values()) : prev;
+        });
+      }
+
+      // 5. Mesclar Expenses do PostgreSQL (incluindo parcelas Shopee e compras com cartões)
+      if (Array.isArray(pgData.expenses) && pgData.expenses.length > 0) {
+        setExpenses((prev) => {
+          const map = new Map<string, Expense>();
+          prev.forEach((e) => map.set(e.id, e));
+          let hasChange = false;
+          pgData.expenses.forEach((pgExp: any) => {
+            const refMonth = pgExp.referenceMonth || (pgExp.date ? pgExp.date.substring(0, 7) : '');
+            const cardId = pgExp.cardId || pgExp.creditCardId || undefined;
+            const cardName = pgExp.cardName || pgExp.creditCardName || undefined;
+
+            const formatted: Expense = {
+              id: pgExp.id,
+              userId: currentUser.uid || pgExp.userId || 'osaiasbrito@gmail.com',
+              description: pgExp.description,
+              amount: Number(pgExp.amount) || 0,
+              categoryId: pgExp.categoryId || 'Geral',
+              categoryName: pgExp.categoryName || 'Geral',
+              paymentMethod: pgExp.paymentMethod || 'CARTAO_CREDITO',
+              paymentMethodId: pgExp.paymentMethodId || undefined,
+              paymentMethodName: pgExp.paymentMethodName || undefined,
+              cardId,
+              cardName,
+              date: pgExp.date || `${refMonth}-01`,
+              referenceMonth: refMonth,
+              status: pgExp.status || 'PENDENTE',
+              isRecurring: Boolean(pgExp.isRecurring),
+              recurringExpenseId: pgExp.recurringExpenseId || undefined,
+              isInstallment: Boolean(pgExp.isInstallment),
+              isIndefinite: Boolean(pgExp.isIndefinite),
+              installmentNumber: pgExp.installmentNumber ? Number(pgExp.installmentNumber) : undefined,
+              totalInstallments: pgExp.totalInstallments ? Number(pgExp.totalInstallments) : undefined,
+              installmentPurchaseId: pgExp.installmentPurchaseId || undefined,
+              notes: pgExp.notes || '',
+              invoiceMonth: pgExp.invoiceMonth || undefined,
+              createdAt: pgExp.createdAt || new Date().toISOString(),
+              updatedAt: pgExp.updatedAt || new Date().toISOString(),
+            };
+
+            const existing = map.get(pgExp.id);
+            if (!existing || (!existing.cardId && cardId) || (!existing.cardName && cardName)) {
+              map.set(pgExp.id, formatted);
+              hasChange = true;
+            }
+
+            if (db && currentUser) {
+              setDoc(doc(db, 'expenses', pgExp.id), sanitizeData(formatted), { merge: true }).catch(() => {});
+            }
+          });
+          return hasChange ? Array.from(map.values()) : prev;
+        });
+      }
     } catch (err) {
       console.warn('Aviso ao sincronizar dados externos do PostgreSQL:', err);
     }
@@ -952,8 +1081,16 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
       // Card filter
       if (filters.cardId !== 'ALL') {
-        const cardMatch = e.cardId === filters.cardId || isExpenseMatchingCard(e, filters.cardId, '', creditCards);
+        const cardMatch =
+          e.cardId === filters.cardId ||
+          isExpenseMatchingCard(e, filters.cardId, '', creditCards, categories, installmentPurchases);
         if (!cardMatch) return false;
+      }
+      // Installment type filter (ALL | A_VISTA | PARCELADA)
+      if (filters.installmentType && filters.installmentType !== 'ALL') {
+        const isInstallment = Boolean(e.isInstallment && e.totalInstallments && e.totalInstallments > 1);
+        if (filters.installmentType === 'PARCELADA' && !isInstallment) return false;
+        if (filters.installmentType === 'A_VISTA' && isInstallment) return false;
       }
       // Status filter
       if (filters.status !== 'ALL') {
@@ -990,7 +1127,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
       return true;
     }).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  }, [expenses, filters, selectedMonth, creditCards]);
+  }, [expenses, filters, selectedMonth, creditCards, categories, installmentPurchases]);
 
   // ================= CRUD IMPLEMENTATIONS ================= //
 

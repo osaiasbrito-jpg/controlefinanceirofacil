@@ -356,22 +356,26 @@ export const calculateMonthInstallmentsAndSingleSummary = (
     (e) => (e.referenceMonth || (e.date ? e.date.substring(0, 7) : '')) === referenceMonth
   );
 
-  // 1. Últimas Parcelas (Finalizam neste mês)
+  // 1. Todas as Parcelas do Mês (ativas)
+  const allInstallments: Expense[] = [];
+
+  // 2. Últimas Parcelas (Finalizam neste mês)
   // Despesas parceladas com prazo fixo onde o número da parcela é igual ao total de parcelas (ex: 4/4, 6/6, 12/12)
   const lastInstallments: Expense[] = [];
 
-  // 2. Compras à Vista (Pagas em 1x / sem parcelamento)
+  // 3. Compras à Vista (Pagas em 1x / sem parcelamento)
   const singleExpenses: Expense[] = [];
 
   for (const exp of monthExpenses) {
     const isIndefinite = isIndefiniteExpense(exp, installmentPurchases);
 
     if (isIndefinite) {
-      // Indefinite continuous subscriptions are recurring, not fixed single or fixed final installments
+      // Indefinite continuous subscriptions are recurring, not fixed single or fixed installments
       continue;
     }
 
     if (exp.isInstallment && exp.totalInstallments && exp.totalInstallments > 1) {
+      allInstallments.push(exp);
       if (exp.installmentNumber === exp.totalInstallments) {
         lastInstallments.push(exp);
       }
@@ -380,6 +384,9 @@ export const calculateMonthInstallmentsAndSingleSummary = (
       singleExpenses.push(exp);
     }
   }
+
+  const allInstallmentsTotal = allInstallments.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+  const allInstallmentsCount = allInstallments.length;
 
   const lastInstallmentsTotal = lastInstallments.reduce((acc, curr) => acc + (curr.amount || 0), 0);
   const lastInstallmentsCount = lastInstallments.length;
@@ -409,11 +416,14 @@ export const calculateMonthInstallmentsAndSingleSummary = (
   const singleOtherExpensesTotal = singleOtherExpenses.reduce((acc, curr) => acc + (curr.amount || 0), 0);
   const singleOtherExpensesCount = singleOtherExpenses.length;
 
-  const combinedTotal = lastInstallmentsTotal + singleExpensesTotal;
-  const combinedCount = lastInstallmentsCount + singleExpensesCount;
+  const combinedTotal = allInstallmentsTotal + singleExpensesTotal;
+  const combinedCount = allInstallmentsCount + singleExpensesCount;
 
   return {
     referenceMonth,
+    allInstallmentsTotal,
+    allInstallmentsCount,
+    allInstallments,
     lastInstallmentsTotal,
     lastInstallmentsCount,
     lastInstallments,

@@ -1,4 +1,4 @@
-import { Category, CreditCard, CustomPaymentMethod, Expense, PaymentMethod } from '../types';
+import { Category, CreditCard, CustomPaymentMethod, Expense, InstallmentPurchase, PaymentMethod } from '../types';
 
 export interface CanonicalCardInfo {
   canonicalId: string;
@@ -375,19 +375,33 @@ export function isExpenseMatchingCard(
   targetCanonicalId: string,
   targetCanonicalName: string,
   registeredCards: CreditCard[] = [],
-  categories: Category[] = []
+  categories: Category[] = [],
+  installmentPurchases: InstallmentPurchase[] = []
 ): boolean {
-  if (expense.paymentMethod !== 'CARTAO_CREDITO') return false;
-
   // Se a despesa for identificada como Pix/Boleto/Dinheiro, não pertence a cartão
   if (isPixExpense(expense, categories) || isBoletoExpense(expense, categories) || isCashExpense(expense, categories)) {
     return false;
   }
 
+  let expCardId = (expense.cardId || '').trim();
+  let expCardNameClean = (expense.cardName || '').trim().toLowerCase();
+
+  // Se os dados do cartão estiverem ausentes na parcela, herdar da compra parcelada pai
+  if ((!expCardId || !expCardNameClean) && expense.installmentPurchaseId && installmentPurchases.length > 0) {
+    const parent = installmentPurchases.find((p) => p.id === expense.installmentPurchaseId);
+    if (parent) {
+      if (!expCardId && parent.cardId) expCardId = parent.cardId.trim();
+      if (!expCardNameClean && parent.cardName) expCardNameClean = parent.cardName.trim().toLowerCase();
+    }
+  }
+
+  // Se mesmo após herança não houver identificador de cartão e o paymentMethod não for crédito, rejeita
+  if (expense.paymentMethod !== 'CARTAO_CREDITO' && !expCardId && !expCardNameClean) {
+    return false;
+  }
+
   const targetIdClean = (targetCanonicalId || '').trim();
   const targetNameClean = (targetCanonicalName || '').trim().toLowerCase();
-  const expCardId = (expense.cardId || '').trim();
-  const expCardNameClean = (expense.cardName || '').trim().toLowerCase();
 
   // 1. Match direto por ID
   if (targetIdClean && (expCardId === targetIdClean || expense.paymentMethodId === targetIdClean)) {
@@ -410,7 +424,7 @@ export function isExpenseMatchingCard(
   }
 
   // 3. Match canônico inteligente
-  const info = getCanonicalCardInfo(expense.cardId, expense.cardName, registeredCards);
+  const info = getCanonicalCardInfo(expCardId, expCardNameClean, registeredCards);
 
   if (targetIdClean && info.canonicalId === targetIdClean) return true;
   if (info.canonicalName.trim().toLowerCase() === targetNameClean) return true;

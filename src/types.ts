@@ -134,6 +134,9 @@ export interface Expense {
   installmentPurchaseId?: string;
   installmentNumber?: number;
   totalInstallments?: number;
+  isRecurring?: boolean;
+  recurringExpenseId?: string;
+  invoiceMonth?: string;
   status: ExpenseStatus;
   notes?: string;
   createdAt: string;
@@ -244,6 +247,10 @@ export interface MonthBudgetSummary {
 
 export interface MonthInstallmentsAndSingleSummary {
   referenceMonth: string;
+  // Todas as parcelas ativas no mês
+  allInstallmentsTotal: number;
+  allInstallmentsCount: number;
+  allInstallments: Expense[];
   // Últimas parcelas (finalizando este mês)
   lastInstallmentsTotal: number;
   lastInstallmentsCount: number;
@@ -258,7 +265,7 @@ export interface MonthInstallmentsAndSingleSummary {
   // Compras à vista em outros métodos (Pix, Boleto, Débito, Dinheiro, etc.)
   singleOtherExpensesTotal: number;
   singleOtherExpensesCount: number;
-  // Total combinado (Últimas parcelas + Compras à vista)
+  // Total combinado (Parcelas + Compras à vista)
   combinedTotal: number;
   combinedCount: number;
 }
@@ -317,6 +324,7 @@ export interface ExpenseFilters {
   paymentMethod: string; // 'ALL' or specific
   cardId: string; // 'ALL' or specific
   status: string; // 'ALL' | 'PAGA' | 'PENDENTE'
+  installmentType?: 'ALL' | 'A_VISTA' | 'PARCELADA';
   minAmount?: number;
   maxAmount?: number;
 }

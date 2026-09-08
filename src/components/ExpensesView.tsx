@@ -225,7 +225,10 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
       const isNonCard = isPix || isBoleto || isDebit || isCash || exp.paymentMethod !== 'CARTAO_CREDITO';
 
       if (!isNonCard && exp.paymentMethod === 'CARTAO_CREDITO') {
-        const canonical = getCanonicalCardInfo(exp.cardId, exp.cardName, creditCards);
+        const parent = exp.installmentPurchaseId ? installmentPurchases.find((p) => p.id === exp.installmentPurchaseId) : undefined;
+        const effectiveCardId = exp.cardId || parent?.cardId;
+        const effectiveCardName = exp.cardName || parent?.cardName;
+        const canonical = getCanonicalCardInfo(effectiveCardId, effectiveCardName, creditCards);
         if (canonical.isRegistered) {
           const groupKey = canonical.canonicalName;
           const existing = cardGroupMap.get(groupKey);
@@ -233,6 +236,23 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
             existing.count += 1;
             existing.total += exp.amount || 0;
           }
+        } else if (canonical.canonicalName) {
+          const groupKey = canonical.canonicalName;
+          let existing = cardGroupMap.get(groupKey);
+          if (!existing) {
+            existing = {
+              key: groupKey,
+              cardId: canonical.canonicalId || groupKey,
+              cardName: canonical.canonicalName,
+              bank: canonical.bank || 'Crédito',
+              color: canonical.color || '#8B5CF6',
+              count: 0,
+              total: 0,
+            };
+            cardGroupMap.set(groupKey, existing);
+          }
+          existing.count += 1;
+          existing.total += exp.amount || 0;
         }
       } else {
         // Non-card payment (Pix, Boleto, Débito, Dinheiro, etc.)
@@ -312,7 +332,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
       methods: methodsList,
       totalCardCount: cardsList.reduce((acc, c) => acc + c.count, 0),
     };
-  }, [expenses, selectedMonth, creditCards, paymentMethods, categories]);
+  }, [expenses, selectedMonth, creditCards, paymentMethods, categories, installmentPurchases]);
 
   // Filtered by sub-tab and clicked breakdown card/method
   const displayedExpenses = useMemo(() => {
@@ -328,7 +348,8 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
           activeBreakdownFilter.cardId,
           activeBreakdownFilter.name,
           creditCards,
-          categories
+          categories,
+          installmentPurchases
         );
         if (!matches) return false;
       } else if (activeBreakdownFilter.type === 'METHOD') {
@@ -345,7 +366,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
 
       return true;
     });
-  }, [filteredExpenses, activeTabStatus, activeBreakdownFilter, creditCards, categories, paymentMethods]);
+  }, [filteredExpenses, activeTabStatus, activeBreakdownFilter, creditCards, categories, paymentMethods, installmentPurchases]);
 
   // Expenses matching active card/method filter (regardless of activeTabStatus) for accurate tab badges
   const expensesMatchingBreakdown = useMemo(() => {
@@ -357,7 +378,8 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
           activeBreakdownFilter.cardId,
           activeBreakdownFilter.name,
           creditCards,
-          categories
+          categories,
+          installmentPurchases
         );
       } else if (activeBreakdownFilter.type === 'METHOD') {
         return isExpenseMatchingPaymentMethod(
@@ -371,7 +393,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
       }
       return true;
     });
-  }, [filteredExpenses, activeBreakdownFilter, creditCards, categories, paymentMethods]);
+  }, [filteredExpenses, activeBreakdownFilter, creditCards, categories, paymentMethods, installmentPurchases]);
 
   // Categories summary for current month to show quick filter chips
   const monthCategoriesSummary = useMemo(() => {
@@ -705,9 +727,12 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
         </div>
       </div>
 
-      {/* Resumo de Últimas Parcelas e Compras à Vista (Não-Recorrentes) */}
+      {/* Resumo de Compras Parceladas e Compras à Vista (Não-Recorrentes) */}
       <NonRecurringExpensesSummary
         summary={monthInstallmentsAndSingleSummary}
+        onFilterByAllInstallments={() => setFilters((p) => ({ ...p, installmentType: 'PARCELADA' }))}
+        onFilterByLastInstallments={() => setFilters((p) => ({ ...p, installmentType: 'PARCELADA' }))}
+        onFilterBySingleExpenses={() => setFilters((p) => ({ ...p, installmentType: 'A_VISTA' }))}
       />
 
       {/* Payment Methods & Credit Cards Breakdown Banner (Print 02 Feature) */}
@@ -999,6 +1024,27 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
                 ))}
               </select>
             </div>
+
+            {/* Installment Type (À Vista / Parcelada) */}
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                Tipo de Lançamento
+              </label>
+              <select
+                value={filters.installmentType || 'ALL'}
+                onChange={(e) =>
+                  setFilters((p) => ({
+                    ...p,
+                    installmentType: e.target.value as 'ALL' | 'A_VISTA' | 'PARCELADA',
+                  }))
+                }
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium cursor-pointer"
+              >
+                <option value="ALL">Todas (À Vista e Parceladas)</option>
+                <option value="PARCELADA">Apenas Compras Parceladas</option>
+                <option value="A_VISTA">Apenas Compras à Vista</option>
+              </select>
+            </div>
           </div>
         </div>
       )}
@@ -1082,9 +1128,82 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
               <CheckCircle2 className="w-3.5 h-3.5" />
               <span>Pagas ({countPaid})</span>
             </button>
+
+            {/* Quick Installment / Single Filter Pills */}
+            <div className="flex items-center gap-1 bg-slate-200/60 p-0.5 rounded-xl border border-slate-200 ml-1">
+              <button
+                type="button"
+                onClick={() => setFilters((p) => ({ ...p, installmentType: 'ALL' }))}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  (filters.installmentType || 'ALL') === 'ALL'
+                    ? 'bg-white text-slate-900 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Exibir todas as despesas (à vista e parceladas)"
+              >
+                Todas
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilters((p) => ({ ...p, installmentType: 'PARCELADA' }))}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                  filters.installmentType === 'PARCELADA'
+                    ? 'bg-indigo-600 text-white shadow-2xs'
+                    : 'text-slate-600 hover:text-indigo-700'
+                }`}
+                title="Exibir apenas compras parceladas"
+              >
+                <Layers className="w-3 h-3" />
+                <span>Parceladas</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilters((p) => ({ ...p, installmentType: 'A_VISTA' }))}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                  filters.installmentType === 'A_VISTA'
+                    ? 'bg-teal-600 text-white shadow-2xs'
+                    : 'text-slate-600 hover:text-teal-700'
+                }`}
+                title="Exibir apenas compras à vista"
+              >
+                <Receipt className="w-3 h-3" />
+                <span>À Vista</span>
+              </button>
+            </div>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {filters.installmentType && filters.installmentType !== 'ALL' && (
+              <div className="flex items-center gap-1.5">
+                <span
+                  className={`text-xs font-bold px-3 py-1 rounded-xl border flex items-center gap-1.5 shadow-xs ${
+                    filters.installmentType === 'PARCELADA'
+                      ? 'text-indigo-800 bg-indigo-50 border-indigo-200'
+                      : 'text-teal-800 bg-teal-50 border-teal-200'
+                  }`}
+                >
+                  {filters.installmentType === 'PARCELADA' ? (
+                    <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                  ) : (
+                    <Receipt className="w-3.5 h-3.5 text-teal-600" />
+                  )}
+                  <span>
+                    Exibindo apenas:{' '}
+                    <strong>
+                      {filters.installmentType === 'PARCELADA' ? 'Compras Parceladas' : 'Compras à Vista'}
+                    </strong>{' '}
+                    ({displayedExpenses.length})
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setFilters((p) => ({ ...p, installmentType: 'ALL' }))}
+                  className="text-[11px] text-slate-500 hover:text-rose-600 font-bold underline cursor-pointer"
+                >
+                  Limpar
+                </button>
+              </div>
+            )}
             {displayedExpenses.length > 0 && (
               <button
                 type="button"

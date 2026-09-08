@@ -214,10 +214,24 @@ export async function getFullUserData(userId: string, userEmail?: string) {
       getUserSettings(userId),
     ]);
 
+    const purchaseMap = new Map((userInstallments || []).map((p) => [p.id, p]));
+    const mappedExpenses = userExpenses.map((exp) => {
+      const parent = exp.installmentPurchaseId ? purchaseMap.get(exp.installmentPurchaseId) : undefined;
+      const effectiveCardId = exp.creditCardId || (exp as any).cardId || parent?.cardId || null;
+      const effectiveCardName = exp.creditCardName || (exp as any).cardName || parent?.cardName || null;
+      return {
+        ...exp,
+        cardId: effectiveCardId,
+        cardName: effectiveCardName,
+        creditCardId: effectiveCardId,
+        creditCardName: effectiveCardName,
+      };
+    });
+
     return {
       salaries: userSalaries,
       incomes: userIncomes,
-      expenses: userExpenses,
+      expenses: mappedExpenses,
       creditCards: userCards,
       paymentMethods: userMethods,
       installmentPurchases: userInstallments,
@@ -501,8 +515,8 @@ export async function syncUserData(payload: SyncDataPayload) {
             categoryName: exp.categoryName || 'Geral',
             paymentMethod: exp.paymentMethod || 'PIX',
             paymentMethodId: exp.paymentMethodId || null,
-            creditCardId: exp.creditCardId || null,
-            creditCardName: exp.creditCardName || null,
+            creditCardId: exp.creditCardId || exp.cardId || null,
+            creditCardName: exp.creditCardName || exp.cardName || null,
             date: exp.date || new Date().toISOString().substring(0, 10),
             referenceMonth: exp.referenceMonth || (exp.date ? exp.date.substring(0, 7) : null),
             status: exp.status || 'PENDENTE',
@@ -526,8 +540,8 @@ export async function syncUserData(payload: SyncDataPayload) {
               categoryName: exp.categoryName || 'Geral',
               paymentMethod: exp.paymentMethod || 'PIX',
               paymentMethodId: exp.paymentMethodId || null,
-              creditCardId: exp.creditCardId || null,
-              creditCardName: exp.creditCardName || null,
+              creditCardId: exp.creditCardId || exp.cardId || null,
+              creditCardName: exp.creditCardName || exp.cardName || null,
               date: exp.date,
               referenceMonth: exp.referenceMonth || (exp.date ? exp.date.substring(0, 7) : null),
               status: exp.status || 'PENDENTE',
