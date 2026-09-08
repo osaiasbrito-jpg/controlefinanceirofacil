@@ -45,6 +45,7 @@ async function startServer() {
   });
 
   app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   // External Systems Integration Routes (Gestão de Pessoas / Massoterapia)
   app.use('/api/integrations', integrationsRouter);
