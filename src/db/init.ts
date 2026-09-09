@@ -190,6 +190,29 @@ export async function ensureDatabaseTables() {
         "response" JSONB,
         "created_at" TIMESTAMP DEFAULT NOW()
       );
+
+      -- Tabela de Renda Extra (Integração Direta Massoterapia)
+      CREATE TABLE IF NOT EXISTS "renda_extra" (
+        "id" TEXT PRIMARY KEY,
+        "descricao" VARCHAR(255) NOT NULL DEFAULT 'MASSOTERAPIA',
+        "origem_renda" VARCHAR(100) NOT NULL DEFAULT 'SERVIÇO',
+        "origem" VARCHAR(100) DEFAULT 'SERVIÇO',
+        "tipo" VARCHAR(100) DEFAULT 'Renda Extra',
+        "categoria" VARCHAR(100) DEFAULT 'Renda Extra',
+        "valor" NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+        "data" DATE NOT NULL DEFAULT CURRENT_DATE,
+        "mes_referencia" VARCHAR(7) NOT NULL,
+        "mes" VARCHAR(7),
+        "observacao" TEXT,
+        "cliente_paciente" VARCHAR(255),
+        "procedimento" VARCHAR(255),
+        "somar_ao_salario" BOOLEAN DEFAULT true,
+        "user_id" VARCHAR(255) DEFAULT 'osaiasbrito@gmail.com',
+        "created_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS "idx_renda_extra_mes" ON "renda_extra"("mes_referencia");
+      CREATE INDEX IF NOT EXISTS "idx_renda_extra_descricao" ON "renda_extra"("descricao");
     `);
 
     // 2. Ensure all columns exist even if tables were created previously

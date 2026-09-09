@@ -76,10 +76,16 @@ export const IncomesView: React.FC<IncomesViewProps> = ({
   }, [otherMonthMassoterapiaIncomes]);
 
   const isMassoterapia = (inc: ExtraIncome) => {
-    const org = (inc.origin || '').toUpperCase();
+    const org = ((inc.origin || (inc as any).source) || '').toUpperCase();
     const desc = (inc.description || '').toUpperCase();
     const notes = (inc.notes || '').toUpperCase();
-    return org.includes('MASSOTERAPIA') || desc.includes('MASSOTERAPIA') || desc.includes('MASSAGEM') || notes.includes('MASSOTERAPIA');
+    return (
+      desc.includes('MASSOTERAPIA') ||
+      desc.includes('MASSAGEM') ||
+      org.includes('MASSOTERAPIA') ||
+      notes.includes('MASSOTERAPIA') ||
+      (desc.includes('MASSOTERAPIA') && org.includes('SERVIÇO'))
+    );
   };
 
   const monthIncomes = useMemo(() => {
@@ -344,11 +350,12 @@ export const IncomesView: React.FC<IncomesViewProps> = ({
                         )}
                         {isMassoterapia(income) ? (
                           <span className="px-2 py-0.5 bg-teal-50 text-teal-800 border border-teal-200/90 rounded-md font-bold text-[9px] inline-flex items-center gap-1">
-                            <span>🧘 Massoterapia</span>
+                            <span className="w-1.5 h-1.5 rounded-full bg-teal-500"></span>
+                            <span>SERVIÇO</span>
                           </span>
                         ) : (
                           <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md font-semibold text-[9px]">
-                            {income.origin || 'Outros'}
+                            {income.origin || (income as any).source || 'Outros'}
                           </span>
                         )}
                       </div>
@@ -447,11 +454,11 @@ export const IncomesView: React.FC<IncomesViewProps> = ({
                         {isMassoterapia(income) ? (
                           <span className="px-2.5 py-1 bg-teal-50 text-teal-800 border border-teal-200/90 rounded-lg font-bold text-[10px] inline-flex items-center gap-1.5 shadow-2xs">
                             <span className="w-1.5 h-1.5 rounded-full bg-teal-500"></span>
-                            <span>Massoterapia</span>
+                            <span>SERVIÇO</span>
                           </span>
                         ) : (
                           <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md font-semibold text-[10px]">
-                            {income.origin || 'Outros'}
+                            {income.origin || (income as any).source || 'Outros'}
                           </span>
                         )}
                       </td>

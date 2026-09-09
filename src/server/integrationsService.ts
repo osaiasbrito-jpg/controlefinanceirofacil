@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { db, pool } from '../db';
-import { extraIncomes, salaries, users, systemIntegrationsLog, categories } from '../db/schema';
+import { extraIncomes, salaries, users, systemIntegrationsLog, categories, rendaExtra } from '../db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { adminDb } from '../lib/firebase-admin';
 
@@ -21,20 +21,27 @@ export interface MassoterapiaIncomePayload {
   value?: number | string;
   price?: number | string;
   description?: string;
+  descricao?: string;
   procedimento?: string;
   servico?: string;
   category?: string;
   source?: string;
+  origem_renda?: string;
+  origem?: string;
   date?: string;
   data?: string;
   referenceMonth?: string;
   mesReferencia?: string;
+  mes_referencia?: string;
+  mes?: string;
   clientName?: string;
   nomeCliente?: string;
   paciente?: string;
   client?: string;
+  cliente_paciente?: string;
   notes?: string;
   observacoes?: string;
+  observacao?: string;
   status?: 'RECEIVED' | 'PENDING';
   alsoAddToSalary?: boolean;
   somarAoSalario?: boolean;
@@ -232,7 +239,14 @@ export async function registerMassoterapiaIncome(
   const rawAmount = payload.amount ?? payload.valor ?? payload.value ?? payload.price;
   const numAmount = parseCurrencyAmount(rawAmount);
 
-  const clientName = (payload.clientName || payload.nomeCliente || payload.paciente || payload.client || '').trim();
+  const clientName = (
+    payload.cliente_paciente ||
+    payload.clientName ||
+    payload.nomeCliente ||
+    payload.paciente ||
+    payload.client ||
+    ''
+  ).trim();
   const rawDesc = (payload.description || payload.procedimento || payload.servico || '').trim();
   const rawDate = payload.date || payload.data;
   const rawMonth = payload.referenceMonth || payload.mesReferencia;
@@ -323,49 +337,76 @@ export async function registerMassoterapiaIncome(
   const packageName = (payload.packageName || payload.nomePacote || payload.titulo || '').trim();
   const totalSessions = payload.totalSessions || payload.sessoes || payload.quantidadeSessoes || 0;
 
-  let finalDesc = '';
+  let finalDesc = 'MASSOTERAPIA';
   let actionType = 'ATENDIMENTO_SESSAO';
 
   if (isPackageRegistration) {
     actionType = 'CADASTRO_PACOTE';
-    const pkgTitle = packageName || (totalSessions > 0 ? `Pacote ${totalSessions} Sessões` : 'Pacote de Massoterapia');
-    finalDesc = `MASSOTERAPIA - Pacote: ${pkgTitle}${clientName ? ` (${clientName})` : ''}`;
   } else {
     actionType = 'ATENDIMENTO_SESSAO';
-    finalDesc = rawDesc || (clientName ? `MASSOTERAPIA - Sessão (${clientName})` : 'MASSOTERAPIA - Sessão');
   }
 
-  const finalSource = payload.category?.trim() || payload.source?.trim() || 'MASSOTERAPIA';
+  const finalSource = 'SERVIÇO';
   const finalStatus = payload.status === 'PENDING' ? 'PENDING' : 'RECEIVED';
   const alsoAddToSalary = payload.alsoAddToSalary !== false && payload.somarAoSalario !== false;
 
   const notesList = [
     clientName ? `Cliente/Paciente: ${clientName}` : null,
+    payload.procedimento || payload.servico ? `Procedimento: ${payload.procedimento || payload.servico}` : null,
     isPackageRegistration && totalSessions > 0 ? `Pacote: ${totalSessions} sessões contratadas` : null,
     isPackageRegistration ? 'Valor cobrado uma única vez no mês' : null,
+    payload.observacao ? payload.observacao.trim() : null,
     payload.notes || payload.observacoes ? (payload.notes || payload.observacoes)?.trim() : null,
-    'Lançado via Sistema de Gestão de Pessoas (Qi Zen Massoterapia)',
+    'Lançado via Sistema de Gestão de Pessoas (Massoterapia)',
   ].filter(Boolean);
   const finalNotes = notesList.join(' | ');
 
-  // 1. Garantir que a categoria MASSOTERAPIA exista no banco PostgreSQL
+  // 1. Inserir na tabela direta renda_extra (especificação do Sistema de Massoterapia)
+  try {
+    await pool.query(
+      `INSERT INTO "renda_extra" (
+        "id", "descricao", "origem_renda", "origem", "tipo", "categoria", "valor", "data", "mes_referencia", "mes", "observacao", "cliente_paciente", "procedimento", "somar_ao_salario", "user_id", "created_at"
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())`,
+      [
+        incomeId,
+        'MASSOTERAPIA',
+        'SERVIÇO',
+        'SERVIÇO',
+        'Renda Extra',
+        'Renda Extra',
+        numAmount,
+        effectiveDate,
+        effectiveMonth,
+        effectiveMonth,
+        finalNotes,
+        clientName || null,
+        payload.procedimento || payload.servico || (isPackageRegistration ? 'Pacote' : 'Atendimento'),
+        alsoAddToSalary,
+        userId,
+      ]
+    );
+  } catch (errRendaExtra) {
+    console.warn('Aviso ao inserir na tabela renda_extra:', errRendaExtra);
+  }
+
+  // 2. Garantir que a categoria SERVIÇO e MASSOTERAPIA existam no banco PostgreSQL
   try {
     const existingCat = await db
       .select()
       .from(categories)
       .where(eq(categories.userId, userId));
     
-    const hasMassoterapia = existingCat.some(
-      (c) => c.name.toLowerCase().includes('massoterapia')
+    const hasServico = existingCat.some(
+      (c) => c.name.toLowerCase().includes('serviço') || c.name.toLowerCase().includes('servico')
     );
 
-    if (!hasMassoterapia) {
+    if (!hasServico) {
       await db.insert(categories).values({
-        id: `cat-massoterapia-${timestamp}`,
+        id: `cat-servico-${timestamp}`,
         userId,
-        name: 'MASSOTERAPIA',
+        name: 'SERVIÇO',
         type: 'INCOME',
-        icon: 'Sparkles',
+        icon: 'Briefcase',
         color: '#10B981',
         isDefault: true,
         isArchived: false,
@@ -373,16 +414,16 @@ export async function registerMassoterapiaIncome(
       });
     }
   } catch (err) {
-    console.warn('Aviso ao verificar categoria MASSOTERAPIA:', err);
+    console.warn('Aviso ao verificar categorias no PostgreSQL:', err);
   }
 
-  // 2. Inserir em extra_incomes (Renda Extra)
+  // 3. Inserir em extra_incomes (Renda Extra do Controle Financeiro)
   await db.insert(extraIncomes).values({
     id: incomeId,
     userId,
     amount: numAmount,
-    description: finalDesc,
-    source: finalSource,
+    description: 'MASSOTERAPIA',
+    source: 'SERVIÇO',
     date: effectiveDate,
     referenceMonth: effectiveMonth,
     status: finalStatus,
@@ -391,12 +432,10 @@ export async function registerMassoterapiaIncome(
     updatedAt: new Date(),
   });
 
-  // 3. Inserir em salaries para somar como salário mensal fixo
+  // 4. Inserir em salaries para somar como salário mensal fixo no mês em vigor
   let salaryRecord = null;
   const payDayNumber = parseInt(effectiveDate.substring(8, 10), 10) || defaultDay;
-  const salaryDesc = isPackageRegistration
-    ? `Salário - Massoterapia Pacote (${clientName ? clientName : packageName || 'Pacote'})`
-    : `Salário - Massoterapia (${clientName ? clientName : finalDesc})`;
+  const salaryDesc = `Salário - MASSOTERAPIA (${clientName ? clientName : 'Atendimento'})`;
 
   if (alsoAddToSalary) {
     await db.insert(salaries).values({
@@ -422,16 +461,16 @@ export async function registerMassoterapiaIncome(
     };
   }
 
-  // 4. Sincronização direta com o Firestore do Firebase (se Admin Firestore estiver ativo)
+  // 5. Sincronização direta com o Firestore do Firebase (se Admin Firestore estiver ativo)
   if (adminDb) {
     try {
       await adminDb.collection('incomes').doc(incomeId).set({
         id: incomeId,
         userId,
         amount: numAmount,
-        description: finalDesc,
-        origin: 'MASSOTERAPIA',
-        source: 'MASSOTERAPIA',
+        description: 'MASSOTERAPIA',
+        origin: 'SERVIÇO',
+        source: 'SERVIÇO',
         date: effectiveDate,
         referenceMonth: effectiveMonth,
         status: finalStatus,

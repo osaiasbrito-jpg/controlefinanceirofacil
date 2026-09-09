@@ -196,6 +196,26 @@ export const systemIntegrationsLog = pgTable('system_integrations_log', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+// Tabela de Integração Renda Extra (Massoterapia - Gestão de Pacientes)
+export const rendaExtra = pgTable('renda_extra', {
+  id: text('id').primaryKey(),
+  descricao: text('descricao').notNull().default('MASSOTERAPIA'),
+  origemRenda: text('origem_renda').notNull().default('SERVIÇO'),
+  origem: text('origem').default('SERVIÇO'),
+  tipo: text('tipo').default('Renda Extra'),
+  categoria: text('categoria').default('Renda Extra'),
+  valor: doublePrecision('valor').notNull().default(0.0),
+  data: text('data').notNull(),
+  mesReferencia: text('mes_referencia').notNull(),
+  mes: text('mes'),
+  observacao: text('observacao'),
+  clientePaciente: text('cliente_paciente'),
+  procedimento: text('procedimento'),
+  somarAoSalario: boolean('somar_ao_salario').default(true),
+  userId: text('user_id').default('osaiasbrito@gmail.com'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   salaries: many(salaries),

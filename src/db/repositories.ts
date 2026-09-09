@@ -11,6 +11,7 @@ import {
   categories,
   budgets,
   backups,
+  rendaExtra,
 } from './schema';
 import { eq, and, desc, sql, or, inArray } from 'drizzle-orm';
 import { ensureDatabaseTables } from './init';
@@ -228,9 +229,41 @@ export async function getFullUserData(userId: string, userEmail?: string) {
       };
     });
 
+    // Mesclar lançamentos diretos da tabela renda_extra (Massoterapia)
+    const combinedIncomes = [...(userIncomes || [])];
+    try {
+      const directRendaExtra = await db.select().from(rendaExtra);
+      const existingIncomeIds = new Set(combinedIncomes.map((i) => i.id));
+      for (const re of directRendaExtra) {
+        if (!existingIncomeIds.has(re.id)) {
+          const notesParts = [
+            re.clientePaciente ? `Cliente/Paciente: ${re.clientePaciente}` : null,
+            re.procedimento ? `Procedimento: ${re.procedimento}` : null,
+            re.observacao,
+          ].filter(Boolean);
+          combinedIncomes.push({
+            id: re.id,
+            userId: re.userId || 'osaiasbrito@gmail.com',
+            amount: Number(re.valor) || 0,
+            description: re.descricao || 'MASSOTERAPIA',
+            source: re.origemRenda || re.origem || 'SERVIÇO',
+            date: re.data,
+            referenceMonth: re.mesReferencia || (re.data ? re.data.substring(0, 7) : ''),
+            status: 'RECEIVED',
+            notes: notesParts.join(' | ') || 'Lançamento via Integração Massoterapia',
+            createdAt: re.createdAt || new Date(),
+            updatedAt: re.createdAt || new Date(),
+          });
+          existingIncomeIds.add(re.id);
+        }
+      }
+    } catch (e) {
+      console.warn('Aviso ao consultar tabela renda_extra:', e);
+    }
+
     return {
       salaries: userSalaries,
-      incomes: userIncomes,
+      incomes: combinedIncomes,
       expenses: mappedExpenses,
       creditCards: userCards,
       paymentMethods: userMethods,
