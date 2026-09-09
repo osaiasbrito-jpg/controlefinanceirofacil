@@ -13,9 +13,11 @@ import {
   CheckCircle2,
   AlertTriangle,
   FileSpreadsheet,
+  Database,
 } from 'lucide-react';
 import { useFinance } from '../context/FinanceContext';
 import { getMonthName, getCurrentMonth, formatDateBR, formatCurrency } from '../utils/formatters';
+import { DatabaseTestModal } from './DatabaseTestModal';
 
 interface HeaderProps {
   onOpenExpenseModal: () => void;
@@ -47,6 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [showAlertsDropdown, setShowAlertsDropdown] = useState(false);
+  const [showDbModal, setShowDbModal] = useState(false);
 
   const isCurrent = selectedMonth === getCurrentMonth();
 
@@ -135,6 +138,16 @@ export const Header: React.FC<HeaderProps> = ({
             className="pl-8 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:border-emerald-500 w-44 lg:w-52 transition-all shadow-xs"
           />
         </div>
+
+        {/* Database Connection Test Shortcut */}
+        <button
+          onClick={() => setShowDbModal(true)}
+          className="p-2.5 rounded-2xl border border-slate-200 bg-white text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 hover:border-emerald-200 transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+          title="Testar Conexão com Banco de Dados PostgreSQL"
+        >
+          <Database className="w-4 h-4 text-emerald-600" />
+          <span className="hidden xl:inline text-[11px] font-extrabold text-slate-700">Banco</span>
+        </button>
 
         {/* Smart Alerts Bell */}
         <div className="relative">
@@ -292,6 +305,12 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Modal de Teste de Conexão com Banco de Dados */}
+      <DatabaseTestModal
+        isOpen={showDbModal}
+        onClose={() => setShowDbModal(false)}
+      />
     </header>
   );
 };

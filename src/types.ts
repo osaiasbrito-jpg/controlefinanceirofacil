@@ -268,6 +268,9 @@ export interface MonthInstallmentsAndSingleSummary {
   // Total combinado (Parcelas + Compras à vista)
   combinedTotal: number;
   combinedCount: number;
+  // Total de despesas não-recorrentes (Últimas Parcelas + Compras à Vista)
+  nonRecurringTotal?: number;
+  nonRecurringCount?: number;
 }
 
 export interface UserSettings {

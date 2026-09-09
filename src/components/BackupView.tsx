@@ -15,6 +15,7 @@ import {
 import { useFinance } from '../context/FinanceContext';
 import { BackupData } from '../types';
 import { generateSampleExcelTemplate } from '../utils/excelParser';
+import { DatabaseTestModal } from './DatabaseTestModal';
 
 interface BackupViewProps {
   onOpenImportExcel?: () => void;
@@ -27,6 +28,7 @@ export const BackupView: React.FC<BackupViewProps> = ({ onOpenImportExcel }) => 
   const [importing, setImporting] = useState(false);
   const [parsedData, setParsedData] = useState<BackupData | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [showDbModal, setShowDbModal] = useState(false);
 
   // Handle Export
   const handleExport = () => {
@@ -110,16 +112,28 @@ export const BackupView: React.FC<BackupViewProps> = ({ onOpenImportExcel }) => 
   return (
     <div className="flex flex-col gap-6 animate-in fade-in duration-300 pb-12">
       {/* Header */}
-      <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs p-6">
-        <div className="flex items-center gap-2 mb-1">
-          <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
-            <Database className="w-4 h-4" />
+      <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+              <Database className="w-4 h-4" />
+            </div>
+            <h2 className="text-xl font-extrabold text-slate-900">Backup & Restauração</h2>
           </div>
-          <h2 className="text-xl font-extrabold text-slate-900">Backup & Restauração</h2>
+          <p className="text-xs text-slate-500">
+            Faça download de todos os seus dados em formato JSON ou restaure um backup prévio a qualquer momento.
+          </p>
         </div>
-        <p className="text-xs text-slate-500">
-          Faça download de todos os seus dados em formato JSON ou restaure um backup prévio a qualquer momento.
-        </p>
+
+        <button
+          type="button"
+          onClick={() => setShowDbModal(true)}
+          className="px-4 py-2.5 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-200 border border-slate-200 rounded-2xl text-xs font-bold text-slate-700 flex items-center gap-2 transition-all cursor-pointer shrink-0"
+          title="Testar Conexão com o PostgreSQL"
+        >
+          <Database className="w-3.5 h-3.5 text-emerald-600" />
+          <span>Testar Conexão com Banco</span>
+        </button>
       </div>
 
       {statusMessage && (
@@ -281,6 +295,11 @@ export const BackupView: React.FC<BackupViewProps> = ({ onOpenImportExcel }) => 
           )}
         </div>
       </div>
+      {/* Modal de Teste de Conexão com Banco de Dados */}
+      <DatabaseTestModal
+        isOpen={showDbModal}
+        onClose={() => setShowDbModal(false)}
+      />
     </div>
   );
 };

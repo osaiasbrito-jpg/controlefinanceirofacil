@@ -35,7 +35,14 @@ import {
 } from 'lucide-react';
 import { useFinance } from '../context/FinanceContext';
 import { Expense, PaymentMethod, InstallmentPurchase } from '../types';
-import { formatCurrency, formatDateBR, getMonthName, getCurrentMonth } from '../utils/formatters';
+import {
+  formatCurrency,
+  formatDateBR,
+  getMonthName,
+  getCurrentMonth,
+  formatExpenseDisplayTitle,
+  getInstallmentLabel,
+} from '../utils/formatters';
 import {
   getCanonicalCardInfo,
   isExpenseMatchingCard,
@@ -1390,13 +1397,20 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
                         </button>
 
                         <div className="flex flex-col min-w-0">
-                          <span
-                            className={`font-black text-sm tracking-tight leading-snug break-words ${
-                              isPaid ? 'line-through text-slate-500' : 'text-slate-900'
-                            }`}
-                          >
-                            {expense.description}
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span
+                              className={`font-black text-sm tracking-tight leading-snug break-words ${
+                                isPaid ? 'line-through text-slate-500' : 'text-slate-900'
+                              }`}
+                            >
+                              {formatExpenseDisplayTitle(expense)}
+                            </span>
+                            {expense.isInstallment && (
+                              <span className="px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded-md text-[10px] font-black border border-purple-200 shrink-0">
+                                {getInstallmentLabel(expense)}
+                              </span>
+                            )}
+                          </div>
                           {expense.notes && (
                             <span className="text-[11px] text-slate-400 font-normal mt-0.5 line-clamp-2">
                               {expense.notes}
@@ -1608,9 +1622,16 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
                         {/* Description & Notes */}
                         <td className="font-bold text-slate-800 pr-2 py-2.5">
                           <div className="flex flex-col">
-                            <span className={isPaid ? 'line-through text-slate-500' : 'text-slate-900'}>
-                              {expense.description}
-                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className={isPaid ? 'line-through text-slate-500' : 'text-slate-900'}>
+                                {formatExpenseDisplayTitle(expense)}
+                              </span>
+                              {expense.isInstallment && (
+                                <span className="px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded-md text-[10px] font-black border border-purple-200 shrink-0">
+                                  {getInstallmentLabel(expense)}
+                                </span>
+                              )}
+                            </div>
                             {expense.notes && (
                               <span className="text-[10px] text-slate-400 font-normal truncate max-w-xs">
                                 {expense.notes}

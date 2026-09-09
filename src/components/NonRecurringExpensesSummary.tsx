@@ -14,7 +14,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { MonthInstallmentsAndSingleSummary, Expense } from '../types';
-import { formatCurrency, getMonthName } from '../utils/formatters';
+import { formatCurrency, getMonthName, formatExpenseDisplayTitle } from '../utils/formatters';
 
 interface NonRecurringExpensesSummaryProps {
   summary: MonthInstallmentsAndSingleSummary;
@@ -138,7 +138,7 @@ export const NonRecurringExpensesSummary: React.FC<NonRecurringExpensesSummaryPr
                     >
                       <div className="flex flex-col truncate pr-2">
                         <div className="flex items-center gap-1.5 truncate">
-                          <span className="font-bold text-slate-800 truncate">{item.description}</span>
+                          <span className="font-bold text-slate-800 truncate">{formatExpenseDisplayTitle(item)}</span>
                           {isFinal && (
                             <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 text-[9px] font-black rounded">
                               Finaliza
@@ -247,7 +247,7 @@ export const NonRecurringExpensesSummary: React.FC<NonRecurringExpensesSummaryPr
                     className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100 text-xs"
                   >
                     <div className="flex flex-col truncate pr-2">
-                      <span className="font-bold text-slate-800 truncate">{item.description}</span>
+                      <span className="font-bold text-slate-800 truncate">{formatExpenseDisplayTitle(item)}</span>
                       <span className="text-[10px] text-teal-600 font-semibold">
                         {item.paymentMethod === 'CARTAO_CREDITO'
                           ? `Cartão (${item.cardName || 'Crédito'})`
@@ -264,7 +264,7 @@ export const NonRecurringExpensesSummary: React.FC<NonRecurringExpensesSummaryPr
           </div>
         </div>
 
-        {/* Card 3: Soma Total Consolidada (Parceladas + À Vista) */}
+        {/* Card 3: Soma Total Não-Recorrente (Últimas + À Vista) - Conforme Print 02 */}
         <div
           id="summary-combined-nonrecurring-card"
           className="bg-gradient-to-br from-emerald-600 to-teal-800 rounded-3xl p-5 shadow-md text-white flex flex-col justify-between relative overflow-hidden"
@@ -277,43 +277,47 @@ export const NonRecurringExpensesSummary: React.FC<NonRecurringExpensesSummaryPr
                 <div className="w-8 h-8 rounded-xl bg-white/20 text-white flex items-center justify-center font-bold">
                   <Sparkles className="w-4 h-4" />
                 </div>
-                <span className="text-xs font-black text-emerald-100 tracking-wide uppercase">
-                  Total Consolidado
-                </span>
+                <div className="flex flex-col">
+                  <span className="text-xs font-black text-emerald-100 tracking-wide uppercase">
+                    Soma Total Não-Recorrente
+                  </span>
+                  <span className="text-[10px] text-emerald-200/90 font-medium">
+                    (Últimas + À Vista)
+                  </span>
+                </div>
               </div>
               <span className="px-2 py-0.5 bg-white/20 text-white rounded-lg text-[10px] font-extrabold">
-                Parceladas + À Vista
+                {lastInstallmentsCount + singleExpensesCount} itens
               </span>
             </div>
 
             <div className="mt-1">
               <span className="text-3xl font-black text-white tracking-tight">
-                {formatCurrency(combinedTotal)}
+                {formatCurrency(lastInstallmentsTotal + singleExpensesTotal)}
               </span>
               <p className="text-[11px] text-emerald-100 font-medium mt-0.5">
-                Total de despesas não recorrentes faturadas em <strong>{getMonthName(referenceMonth)}</strong>
+                Total de gastos deste mês que <strong>NÃO se repetem no próximo mês</strong>
               </p>
             </div>
           </div>
 
-          {/* Formula explanation */}
-          <div className="mt-4 pt-3 border-t border-white/20 relative z-10 flex flex-col gap-1.5 text-xs text-emerald-100">
+          {/* Breakdown: Últimas Parcelas + Compras à Vista */}
+          <div className="mt-4 pt-3 border-t border-white/20 relative z-10 flex flex-col gap-2 text-xs text-emerald-100">
             <div className="flex items-center justify-between">
-              <span>Compras Parceladas ({allInstallmentsCount}):</span>
-              <span className="font-bold text-white">{formatCurrency(allInstallmentsTotal)}</span>
+              <span>Últimas Parcelas ({lastInstallmentsCount}):</span>
+              <span className="font-bold text-white">{formatCurrency(lastInstallmentsTotal)}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span>Compras à Vista ({singleExpensesCount}):</span>
+              <span>Compras à Vista (Cartão + Pix + Outros) ({singleExpensesCount}):</span>
               <span className="font-bold text-white">{formatCurrency(singleExpensesTotal)}</span>
             </div>
-            {lastInstallmentsCount > 0 && (
-              <div className="mt-1 bg-white/15 p-2 rounded-xl text-[11px] text-white flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5 text-amber-300 shrink-0" />
-                <span>
-                  <strong>{formatCurrency(lastInstallmentsTotal)}</strong> ({lastInstallmentsCount} parcelas) terminam neste mês e aliviarão o próximo!
-                </span>
-              </div>
-            )}
+
+            <div className="mt-1 bg-white/15 p-2.5 rounded-2xl text-[11px] text-white flex items-center gap-2">
+              <Zap className="w-4 h-4 text-amber-300 shrink-0" />
+              <span>
+                <strong>{formatCurrency(lastInstallmentsTotal + singleExpensesTotal)}</strong> estarão liberados no seu orçamento do mês que vem!
+              </span>
+            </div>
           </div>
         </div>
       </div>

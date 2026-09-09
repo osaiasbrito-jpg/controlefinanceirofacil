@@ -1,13 +1,45 @@
 import React, { useState } from 'react';
-import { Settings, User, Shield, Moon, Sun, Sparkles, LogOut, CheckCircle2, RefreshCw } from 'lucide-react';
+import {
+  Settings,
+  User,
+  Shield,
+  Moon,
+  Sun,
+  Sparkles,
+  LogOut,
+  CheckCircle2,
+  RefreshCw,
+  Database,
+  Server,
+  Zap,
+  CheckCircle,
+  XCircle,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useFinance } from '../context/FinanceContext';
+import { DatabaseTestModal, testDatabaseConnection, DbHealthResult } from './DatabaseTestModal';
 
 export const SettingsView: React.FC = () => {
   const { currentUser, userProfile, signOut, isDemoUser, signInDemo } = useAuth();
   const { seedDemoData } = useFinance();
   const [seeding, setSeeding] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Database Connection Test State
+  const [showDbModal, setShowDbModal] = useState(false);
+  const [testingDb, setTestingDb] = useState(false);
+  const [dbTestResult, setDbTestResult] = useState<DbHealthResult | null>(null);
+
+  const handleTestDatabase = async () => {
+    setTestingDb(true);
+    try {
+      const res = await testDatabaseConnection();
+      setDbTestResult(res);
+      setShowDbModal(true);
+    } finally {
+      setTestingDb(false);
+    }
+  };
 
   const handleSeedData = async () => {
     setSeeding(true);
@@ -147,7 +179,63 @@ export const SettingsView: React.FC = () => {
             )}
           </button>
         </div>
+
+        {/* Database Connection Diagnostic Card (Solicitado pelo Usuário) */}
+        <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs p-6 flex flex-col justify-between md:col-span-2">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
+                <Database className="w-4 h-4 text-emerald-600" />
+                Diagnóstico & Conexão com o Banco de Dados
+              </h3>
+              <span className="px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-full text-[11px] font-black flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                PostgreSQL Relacional Ativo
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Verifique a integridade, o tempo de resposta e a conectividade direta com o banco de dados PostgreSQL Cloud SQL.
+              <strong> Garantia de Preservação:</strong> Todas as atualizações realizam mesclagem segura (não-destrutiva), garantindo que dados históricos e edições nunca sejam apagados.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 my-2 text-xs">
+              <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl flex flex-col gap-0.5">
+                <span className="text-[10px] text-slate-400 font-bold uppercase">Instância / Banco</span>
+                <span className="font-bold text-slate-800 font-mono">cloud_sql_development_database</span>
+              </div>
+              <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl flex flex-col gap-0.5">
+                <span className="text-[10px] text-slate-400 font-bold uppercase">Porta & Provedor</span>
+                <span className="font-bold text-slate-800">5432 (Cloud SQL Developer)</span>
+              </div>
+              <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl flex flex-col gap-0.5">
+                <span className="text-[10px] text-slate-400 font-bold uppercase">Proteção Ativa</span>
+                <span className="font-bold text-emerald-700">Upsert Seguro sem Exclusão</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-4 mt-2 border-t border-slate-100 flex items-center justify-between flex-wrap gap-3">
+            <span className="text-xs text-slate-400">
+              Clique para disparar um ping de verificação em tempo real:
+            </span>
+            <button
+              onClick={handleTestDatabase}
+              disabled={testingDb}
+              className="py-2.5 px-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-md shadow-emerald-200 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${testingDb ? 'animate-spin' : ''}`} />
+              <span>{testingDb ? 'Testando Conexão...' : 'Testar Conexão com Banco de Dados'}</span>
+            </button>
+          </div>
+        </div>
       </div>
+
+      {/* Modal de Teste de Conexão com Banco de Dados */}
+      <DatabaseTestModal
+        isOpen={showDbModal}
+        onClose={() => setShowDbModal(false)}
+      />
     </div>
   );
 };

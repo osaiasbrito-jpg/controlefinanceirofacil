@@ -245,6 +245,22 @@ export async function getFullUserData(userId: string, userEmail?: string) {
   }
 }
 
+// Helper to process items in concurrent batches to prevent long sequential loops
+async function processBatched<T>(items: T[], chunkSize: number, fn: (item: T) => Promise<any>) {
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const chunk = items.slice(i, i + chunkSize);
+    await Promise.all(
+      chunk.map(async (item) => {
+        try {
+          await fn(item);
+        } catch (e) {
+          console.warn('Aviso: falha pontual ao gravar registro no PostgreSQL:', e);
+        }
+      })
+    );
+  }
+}
+
 // Bulk Sync/Save from Client to PostgreSQL
 export async function syncUserData(payload: SyncDataPayload) {
   const { userId } = payload;
@@ -253,8 +269,8 @@ export async function syncUserData(payload: SyncDataPayload) {
   try {
     // 1. Categories
     if (payload.categories && Array.isArray(payload.categories)) {
-      for (const cat of payload.categories) {
-        if (!cat.id) continue;
+      const validCategories = payload.categories.filter((cat) => cat && cat.id);
+      await processBatched(validCategories, 20, async (cat) => {
         await db
           .insert(categories)
           .values({
@@ -282,13 +298,13 @@ export async function syncUserData(payload: SyncDataPayload) {
               updatedAt: new Date(),
             },
           });
-      }
+      });
     }
 
     // 2. Budgets
     if (payload.budgets && Array.isArray(payload.budgets)) {
-      for (const b of payload.budgets) {
-        if (!b.id) continue;
+      const validBudgets = payload.budgets.filter((b) => b && b.id);
+      await processBatched(validBudgets, 20, async (b) => {
         await db
           .insert(budgets)
           .values({
@@ -313,13 +329,13 @@ export async function syncUserData(payload: SyncDataPayload) {
               updatedAt: new Date(),
             },
           });
-      }
+      });
     }
 
     // 3. Salaries
     if (payload.salaries && Array.isArray(payload.salaries)) {
-      for (const sal of payload.salaries) {
-        if (!sal.id) continue;
+      const validSalaries = payload.salaries.filter((sal) => sal && sal.id);
+      await processBatched(validSalaries, 20, async (sal) => {
         await db
           .insert(salaries)
           .values({
@@ -347,13 +363,13 @@ export async function syncUserData(payload: SyncDataPayload) {
               updatedAt: new Date(),
             },
           });
-      }
+      });
     }
 
     // 4. Incomes
     if (payload.incomes && Array.isArray(payload.incomes)) {
-      for (const inc of payload.incomes) {
-        if (!inc.id) continue;
+      const validIncomes = payload.incomes.filter((inc) => inc && inc.id);
+      await processBatched(validIncomes, 20, async (inc) => {
         await db
           .insert(extraIncomes)
           .values({
@@ -381,13 +397,13 @@ export async function syncUserData(payload: SyncDataPayload) {
               updatedAt: new Date(),
             },
           });
-      }
+      });
     }
 
     // 5. Credit Cards
     if (payload.creditCards && Array.isArray(payload.creditCards)) {
-      for (const card of payload.creditCards) {
-        if (!card.id) continue;
+      const validCards = payload.creditCards.filter((card) => card && card.id);
+      await processBatched(validCards, 20, async (card) => {
         await db
           .insert(creditCards)
           .values({
@@ -419,13 +435,13 @@ export async function syncUserData(payload: SyncDataPayload) {
               updatedAt: new Date(),
             },
           });
-      }
+      });
     }
 
     // 6. Payment Methods
     if (payload.paymentMethods && Array.isArray(payload.paymentMethods)) {
-      for (const pm of payload.paymentMethods) {
-        if (!pm.id) continue;
+      const validMethods = payload.paymentMethods.filter((pm) => pm && pm.id);
+      await processBatched(validMethods, 20, async (pm) => {
         await db
           .insert(customPaymentMethods)
           .values({
@@ -451,13 +467,13 @@ export async function syncUserData(payload: SyncDataPayload) {
               updatedAt: new Date(),
             },
           });
-      }
+      });
     }
 
     // 7. Installment Purchases
     if (payload.installmentPurchases && Array.isArray(payload.installmentPurchases)) {
-      for (const inst of payload.installmentPurchases) {
-        if (!inst.id) continue;
+      const validInstallments = payload.installmentPurchases.filter((inst) => inst && inst.id);
+      await processBatched(validInstallments, 20, async (inst) => {
         await db
           .insert(installmentPurchases)
           .values({
@@ -481,35 +497,35 @@ export async function syncUserData(payload: SyncDataPayload) {
           .onConflictDoUpdate({
             target: installmentPurchases.id,
             set: {
-              title: inst.title,
-              totalAmount: Number(inst.totalAmount) || 0,
-              installmentCount: Number(inst.installmentCount) || 1,
-              installmentAmount: Number(inst.installmentAmount) || 0,
-              startMonth: inst.startMonth,
-              cardId: String(inst.cardId),
-              cardName: inst.cardName,
-              categoryId: String(inst.categoryId),
-              categoryName: inst.categoryName,
-              defaultDay: Number(inst.defaultDay) || 1,
-              isIndefinite: Boolean(inst.isIndefinite),
-              isInterrupted: Boolean(inst.isInterrupted),
-              interruptedMonth: inst.interruptedMonth,
+              title: inst.title ? String(inst.title) : sql`installment_purchases.title`,
+              totalAmount: inst.totalAmount !== undefined ? Number(inst.totalAmount) : sql`installment_purchases.total_amount`,
+              installmentCount: inst.installmentCount !== undefined ? Number(inst.installmentCount) : sql`installment_purchases.installment_count`,
+              installmentAmount: inst.installmentAmount !== undefined ? Number(inst.installmentAmount) : sql`installment_purchases.installment_amount`,
+              startMonth: inst.startMonth ? String(inst.startMonth) : sql`installment_purchases.start_month`,
+              cardId: inst.cardId ? String(inst.cardId) : sql`installment_purchases.card_id`,
+              cardName: inst.cardName ? String(inst.cardName) : sql`installment_purchases.card_name`,
+              categoryId: inst.categoryId ? String(inst.categoryId) : sql`installment_purchases.category_id`,
+              categoryName: inst.categoryName ? String(inst.categoryName) : sql`installment_purchases.category_name`,
+              defaultDay: inst.defaultDay ? Number(inst.defaultDay) : sql`installment_purchases.default_day`,
+              isIndefinite: inst.isIndefinite !== undefined ? Boolean(inst.isIndefinite) : sql`installment_purchases.is_indefinite`,
+              isInterrupted: inst.isInterrupted !== undefined ? Boolean(inst.isInterrupted) : sql`installment_purchases.is_interrupted`,
+              interruptedMonth: inst.interruptedMonth ? String(inst.interruptedMonth) : sql`installment_purchases.interrupted_month`,
               updatedAt: new Date(),
             },
           });
-      }
+      });
     }
 
     // 8. Expenses
     if (payload.expenses && Array.isArray(payload.expenses)) {
-      for (const exp of payload.expenses) {
-        if (!exp.id) continue;
+      const validExpenses = payload.expenses.filter((exp) => exp && exp.id);
+      await processBatched(validExpenses, 25, async (exp) => {
         await db
           .insert(expenses)
           .values({
             id: String(exp.id),
             userId,
-            description: exp.description,
+            description: exp.description || 'Despesa',
             amount: Number(exp.amount) || 0,
             categoryId: String(exp.categoryId || 'Geral'),
             categoryName: exp.categoryName || 'Geral',
@@ -534,30 +550,30 @@ export async function syncUserData(payload: SyncDataPayload) {
           .onConflictDoUpdate({
             target: expenses.id,
             set: {
-              description: exp.description,
-              amount: Number(exp.amount) || 0,
-              categoryId: String(exp.categoryId || 'Geral'),
-              categoryName: exp.categoryName || 'Geral',
-              paymentMethod: exp.paymentMethod || 'PIX',
-              paymentMethodId: exp.paymentMethodId || null,
-              creditCardId: exp.creditCardId || exp.cardId || null,
-              creditCardName: exp.creditCardName || exp.cardName || null,
-              date: exp.date,
-              referenceMonth: exp.referenceMonth || (exp.date ? exp.date.substring(0, 7) : null),
-              status: exp.status || 'PENDENTE',
-              isRecurring: Boolean(exp.isRecurring),
-              recurringExpenseId: exp.recurringExpenseId || null,
-              isInstallment: Boolean(exp.isInstallment),
-              isIndefinite: Boolean(exp.isIndefinite),
-              installmentNumber: exp.installmentNumber ? Number(exp.installmentNumber) : null,
-              totalInstallments: exp.totalInstallments ? Number(exp.totalInstallments) : null,
-              installmentPurchaseId: exp.installmentPurchaseId || null,
-              notes: exp.notes || null,
-              invoiceMonth: exp.invoiceMonth || null,
+              description: exp.description ? String(exp.description) : sql`expenses.description`,
+              amount: exp.amount !== undefined ? Number(exp.amount) : sql`expenses.amount`,
+              categoryId: exp.categoryId ? String(exp.categoryId) : sql`expenses.category_id`,
+              categoryName: exp.categoryName ? String(exp.categoryName) : sql`expenses.category_name`,
+              paymentMethod: exp.paymentMethod ? String(exp.paymentMethod) : sql`expenses.payment_method`,
+              paymentMethodId: exp.paymentMethodId ? String(exp.paymentMethodId) : sql`expenses.payment_method_id`,
+              creditCardId: (exp.creditCardId || exp.cardId) ? String(exp.creditCardId || exp.cardId) : sql`expenses.credit_card_id`,
+              creditCardName: (exp.creditCardName || exp.cardName) ? String(exp.creditCardName || exp.cardName) : sql`expenses.credit_card_name`,
+              date: exp.date ? String(exp.date) : sql`expenses.date`,
+              referenceMonth: exp.referenceMonth || (exp.date ? exp.date.substring(0, 7) : null) || sql`expenses.reference_month`,
+              status: exp.status ? String(exp.status) : sql`expenses.status`,
+              isRecurring: exp.isRecurring !== undefined ? Boolean(exp.isRecurring) : sql`expenses.is_recurring`,
+              recurringExpenseId: exp.recurringExpenseId ? String(exp.recurringExpenseId) : sql`expenses.recurring_expense_id`,
+              isInstallment: exp.isInstallment !== undefined ? Boolean(exp.isInstallment) : sql`expenses.is_installment`,
+              isIndefinite: exp.isIndefinite !== undefined ? Boolean(exp.isIndefinite) : sql`expenses.is_indefinite`,
+              installmentNumber: exp.installmentNumber ? Number(exp.installmentNumber) : sql`expenses.installment_number`,
+              totalInstallments: exp.totalInstallments ? Number(exp.totalInstallments) : sql`expenses.total_installments`,
+              installmentPurchaseId: exp.installmentPurchaseId ? String(exp.installmentPurchaseId) : sql`expenses.installment_purchase_id`,
+              notes: exp.notes !== undefined ? (exp.notes || null) : sql`expenses.notes`,
+              invoiceMonth: exp.invoiceMonth ? String(exp.invoiceMonth) : sql`expenses.invoice_month`,
               updatedAt: new Date(),
             },
           });
-      }
+      });
     }
 
     // 9. Settings

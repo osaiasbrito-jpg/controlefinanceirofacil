@@ -21,17 +21,57 @@ import { isExpenseMatchingCard, isPixExpense, isBoletoExpense, isDebitExpense, i
  * Checks whether an expense is an indefinite / recurring continuous subscription (prazo indeterminado)
  */
 export const isIndefiniteExpense = (
-  expense: Expense,
+  expense: Partial<Expense>,
   installmentPurchases: InstallmentPurchase[] = []
 ): boolean => {
-  if (expense.isIndefinite) return true;
-  if (expense.isInstallment && expense.totalInstallments === 0) return true;
-  if (expense.description && /indeterminado/i.test(expense.description)) return true;
-  if (expense.notes && /indeterminado/i.test(expense.notes)) return true;
+  if (!expense) return false;
+
+  // 1. Flag explícita booleana ou string
+  if (expense.isIndefinite === true || (expense.isIndefinite as any) === 'true') {
+    return true;
+  }
+
+  // 2. Parcela sem total definido ou total igual a zero/null (assinaturas contínuas)
+  if (
+    expense.isInstallment &&
+    (expense.totalInstallments === 0 ||
+      expense.totalInstallments === null ||
+      expense.totalInstallments === undefined)
+  ) {
+    return true;
+  }
+
+  // 3. Descrição ou notas indicando indeterminado ou contínuo
+  const desc = (expense.description || '').toLowerCase();
+  const notes = (expense.notes || '').toLowerCase();
+  if (
+    desc.includes('indeterminado') ||
+    desc.includes('tempo indeterminado') ||
+    notes.includes('indeterminado') ||
+    notes.includes('tempo indeterminado') ||
+    notes.includes('lançamento contínuo') ||
+    notes.includes('lancamento continuo')
+  ) {
+    return true;
+  }
+
+  // 4. Vinculação com a compra parcelada pai
   if (expense.installmentPurchaseId && installmentPurchases && installmentPurchases.length > 0) {
     const parent = installmentPurchases.find((p) => p.id === expense.installmentPurchaseId);
     if (parent?.isIndefinite) return true;
   }
+
+  // 5. Comparação por título com compras contínuas no array de compras parceladas
+  if (desc && installmentPurchases && installmentPurchases.length > 0) {
+    const cleanDesc = desc.replace(/\s*\(.*?\)\s*/g, '').trim();
+    if (cleanDesc) {
+      const parentByTitle = installmentPurchases.find(
+        (p) => p.isIndefinite && p.title.toLowerCase().trim().includes(cleanDesc)
+      );
+      if (parentByTitle) return true;
+    }
+  }
+
   return false;
 };
 
@@ -367,20 +407,25 @@ export const calculateMonthInstallmentsAndSingleSummary = (
   const singleExpenses: Expense[] = [];
 
   for (const exp of monthExpenses) {
-    const isIndefinite = isIndefiniteExpense(exp, installmentPurchases);
-
-    if (isIndefinite) {
-      // Indefinite continuous subscriptions are recurring, not fixed single or fixed installments
+    // 1. Despesas indeterminadas / assinaturas contínuas são recorrentes por definição e NUNCA entram em Compras à Vista nem na Soma Total Não-Recorrente
+    if (isIndefiniteExpense(exp, installmentPurchases)) {
       continue;
     }
 
-    if (exp.isInstallment && exp.totalInstallments && exp.totalInstallments > 1) {
-      allInstallments.push(exp);
-      if (exp.installmentNumber === exp.totalInstallments) {
-        lastInstallments.push(exp);
+    // 2. Se for despesa parcelada (isInstallment):
+    if (exp.isInstallment) {
+      if (exp.totalInstallments && exp.totalInstallments > 1) {
+        allInstallments.push(exp);
+        if (exp.installmentNumber === exp.totalInstallments) {
+          lastInstallments.push(exp);
+        }
       }
-    } else {
-      // Single / À vista (Cartão à vista, Pix, Boleto, Débito, Dinheiro, etc.)
+      // IMPORTANTE: Parcelas sem total fixo ou indeterminadas NUNCA caem em Compras à Vista
+      continue;
+    }
+
+    // 3. Apenas despesas que comprovadamente NÃO são parceladas e NÃO são fixas/recorrentes
+    if (!exp.isRecurring) {
       singleExpenses.push(exp);
     }
   }
@@ -416,8 +461,11 @@ export const calculateMonthInstallmentsAndSingleSummary = (
   const singleOtherExpensesTotal = singleOtherExpenses.reduce((acc, curr) => acc + (curr.amount || 0), 0);
   const singleOtherExpensesCount = singleOtherExpenses.length;
 
-  const combinedTotal = allInstallmentsTotal + singleExpensesTotal;
-  const combinedCount = allInstallmentsCount + singleExpensesCount;
+  // Soma Total Não-Recorrente: Gastos pontuais deste mês que NÃO se repetem no próximo mês (Últimas Parcelas + Compras à Vista)
+  const nonRecurringTotal = lastInstallmentsTotal + singleExpensesTotal;
+  const nonRecurringCount = lastInstallmentsCount + singleExpensesCount;
+  const combinedTotal = nonRecurringTotal;
+  const combinedCount = nonRecurringCount;
 
   return {
     referenceMonth,
@@ -436,5 +484,7 @@ export const calculateMonthInstallmentsAndSingleSummary = (
     singleOtherExpensesCount,
     combinedTotal,
     combinedCount,
+    nonRecurringTotal,
+    nonRecurringCount,
   };
 };

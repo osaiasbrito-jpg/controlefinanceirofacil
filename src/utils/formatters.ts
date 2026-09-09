@@ -105,3 +105,68 @@ export const splitInstallments = (totalAmount: number, count: number): number[] 
   
   return installments;
 };
+
+/**
+ * Formats an expense description to guarantee that installments show their parcel number (e.g. 3 de 4)
+ */
+export const formatExpenseDisplayTitle = (expense: {
+  description?: string;
+  isInstallment?: boolean;
+  isIndefinite?: boolean;
+  installmentNumber?: number;
+  totalInstallments?: number;
+}): string => {
+  if (!expense || !expense.description) return '';
+  const desc = expense.description.trim();
+
+  if (expense.isInstallment) {
+    const isIndef =
+      expense.isIndefinite ||
+      expense.totalInstallments === 0 ||
+      expense.totalInstallments === null ||
+      expense.totalInstallments === undefined;
+
+    if (isIndef) {
+      const num = expense.installmentNumber || 1;
+      if (!/mês\s*\d+/i.test(desc) && !/indeterminado/i.test(desc)) {
+        return `${desc} (Mês ${num} - Indeterminado)`;
+      }
+      return desc;
+    }
+
+    const num = expense.installmentNumber || 1;
+    const total = expense.totalInstallments;
+    // Se a descrição ainda não tem (3/4) ou (3 de 4) ou 3/4
+    const hasPattern = new RegExp(`\\(?${num}\\s*[/de]\\s*${total}\\)?`, 'i').test(desc);
+    if (!hasPattern) {
+      return `${desc} (${num}/${total})`;
+    }
+  }
+
+  return desc;
+};
+
+/**
+ * Returns a friendly text badge for installments (e.g. "Parcela 3 de 4")
+ */
+export const getInstallmentLabel = (expense: {
+  isInstallment?: boolean;
+  isIndefinite?: boolean;
+  installmentNumber?: number;
+  totalInstallments?: number;
+}): string | null => {
+  if (!expense || !expense.isInstallment) return null;
+
+  const isIndef =
+    expense.isIndefinite ||
+    expense.totalInstallments === 0 ||
+    expense.totalInstallments === null ||
+    expense.totalInstallments === undefined;
+
+  if (isIndef) {
+    return `Mês ${expense.installmentNumber || 1} (Indeterminado)`;
+  }
+
+  return `Parcela ${expense.installmentNumber || 1} de ${expense.totalInstallments || 1}`;
+};
+

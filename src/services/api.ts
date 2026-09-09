@@ -38,7 +38,7 @@ export async function syncUserWithPostgres(user: { uid: string; email?: string |
     }
     return await res.json();
   } catch (error) {
-    console.error('Error syncing user with PostgreSQL:', error);
+    console.warn('Aviso ao sincronizar usuário com PostgreSQL:', error);
     return null;
   }
 }
@@ -54,10 +54,15 @@ export async function loadUserDataFromPostgres(userId: string, idToken?: string,
     if (userId) params.set('userId', userId);
     if (email) params.set('email', email);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
     const res = await fetch(`/api/data?${params.toString()}`, {
       method: 'GET',
       headers,
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
@@ -66,7 +71,7 @@ export async function loadUserDataFromPostgres(userId: string, idToken?: string,
     const json = await res.json();
     return json.data;
   } catch (error) {
-    console.error('Error loading data from PostgreSQL:', error);
+    console.warn('Aviso ao carregar dados do PostgreSQL:', error);
     return null;
   }
 }
@@ -78,11 +83,16 @@ export async function syncDataToPostgres(payload: DbSyncPayload, idToken?: strin
       headers['Authorization'] = `Bearer ${idToken}`;
     }
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
+
     const res = await fetch('/api/sync', {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
@@ -90,7 +100,7 @@ export async function syncDataToPostgres(payload: DbSyncPayload, idToken?: strin
 
     return await res.json();
   } catch (error) {
-    console.error('Error syncing data to PostgreSQL:', error);
+    // Sincronização em segundo plano: falhas de rede transitórias ou durante recargas não devem poluir o console
     return null;
   }
 }
@@ -113,7 +123,7 @@ export async function deleteEntityFromPostgres(table: string, id: string, userId
 
     return await res.json();
   } catch (error) {
-    console.error(`Error deleting ${table} #${id} from PostgreSQL:`, error);
+    console.warn(`Aviso ao deletar ${table} #${id} do PostgreSQL:`, error);
     return null;
   }
 }

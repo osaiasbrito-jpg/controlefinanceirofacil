@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, ReactNode, useMemo, useCallback, useRef } from 'react';
 import {
   collection,
   query,
@@ -262,6 +262,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<ExpenseFilters>(defaultFilters);
+  const isRefreshingFromPgRef = useRef<boolean>(false);
+  const isSyncingToPgRef = useRef<boolean>(false);
 
   // Month navigation
   const goToPreviousMonth = useCallback(() => {
@@ -747,9 +749,12 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   // Synchronize financial data to PostgreSQL database in background
   useEffect(() => {
-    if (!currentUser || isDemoUser) return;
+    if (!currentUser || isDemoUser || loading) return;
+    if (isRefreshingFromPgRef.current || isSyncingToPgRef.current) return;
 
     const timeoutId = setTimeout(async () => {
+      if (isRefreshingFromPgRef.current || isSyncingToPgRef.current) return;
+      isSyncingToPgRef.current = true;
       try {
         let token: string | undefined;
         try {
@@ -758,8 +763,13 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
           // Continue without token if expired
         }
 
+        const isOsaias =
+          currentUser.email?.toLowerCase() === 'osaiasbrito@gmail.com' ||
+          currentUser.uid?.toLowerCase().includes('osaias');
+        const effectiveUserId = isOsaias ? 'osaiasbrito@gmail.com' : currentUser.uid;
+
         await syncDataToPostgres({
-          userId: currentUser.uid,
+          userId: effectiveUserId,
           salaries,
           incomes,
           expenses,
@@ -770,14 +780,17 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
           settings,
         }, token);
       } catch (err) {
-        console.warn('Erro ao sincronizar com PostgreSQL:', err);
+        console.warn('Aviso na sincronização em segundo plano com PostgreSQL:', err);
+      } finally {
+        isSyncingToPgRef.current = false;
       }
-    }, 1000);
+    }, 4000);
 
     return () => clearTimeout(timeoutId);
   }, [
     currentUser,
     isDemoUser,
+    loading,
     salaries,
     incomes,
     expenses,
@@ -791,6 +804,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   // Sincronização e merge de dados externos inseridos diretamente no PostgreSQL via API de Integração
   const refreshDataFromPostgres = useCallback(async () => {
     if (!currentUser || isDemoUser) return;
+    isRefreshingFromPgRef.current = true;
     try {
       let token: string | undefined;
       try {
@@ -830,11 +844,6 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
               map.set(pgInc.id, formatted);
               hasNew = true;
             }
-
-            // Grava com segurança no Firestore do cliente autenticado
-            if (db && currentUser) {
-              setDoc(doc(db, 'incomes', pgInc.id), sanitizeData(formatted), { merge: true }).catch(() => {});
-            }
           });
           return hasNew ? Array.from(map.values()) : prev;
         });
@@ -862,11 +871,6 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
             if (!map.has(pgSal.id)) {
               map.set(pgSal.id, formatted);
               hasNew = true;
-            }
-
-            // Grava com segurança no Firestore do cliente autenticado
-            if (db && currentUser) {
-              setDoc(doc(db, 'salaries', pgSal.id), sanitizeData(formatted), { merge: true }).catch(() => {});
             }
           });
           return hasNew ? Array.from(map.values()) : prev;
@@ -896,9 +900,6 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
             if (!map.has(pgCard.id)) {
               map.set(pgCard.id, formatted);
               hasNew = true;
-            }
-            if (db && currentUser) {
-              setDoc(doc(db, 'creditCards', pgCard.id), sanitizeData(formatted), { merge: true }).catch(() => {});
             }
           });
           return hasNew ? Array.from(map.values()) : prev;
@@ -933,9 +934,6 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
             if (!map.has(pgInst.id)) {
               map.set(pgInst.id, formatted);
               hasNew = true;
-            }
-            if (db && currentUser) {
-              setDoc(doc(db, 'installmentPurchases', pgInst.id), sanitizeData(formatted), { merge: true }).catch(() => {});
             }
           });
           return hasNew ? Array.from(map.values()) : prev;
@@ -982,13 +980,43 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
             };
 
             const existing = map.get(pgExp.id);
-            if (!existing || (!existing.cardId && cardId) || (!existing.cardName && cardName)) {
+            if (!existing) {
               map.set(pgExp.id, formatted);
               hasChange = true;
-            }
-
-            if (db && currentUser) {
-              setDoc(doc(db, 'expenses', pgExp.id), sanitizeData(formatted), { merge: true }).catch(() => {});
+            } else {
+              // Merge seguro e não destrutivo: dados preexistentes nunca são apagados
+              const merged: Expense = {
+                ...existing,
+                ...formatted,
+                description: formatted.description || existing.description,
+                amount: formatted.amount || existing.amount,
+                date: formatted.date || existing.date,
+                referenceMonth: formatted.referenceMonth || existing.referenceMonth,
+                status: formatted.status || existing.status,
+                categoryId: formatted.categoryId || existing.categoryId,
+                categoryName: formatted.categoryName || existing.categoryName,
+                paymentMethod: formatted.paymentMethod || existing.paymentMethod,
+                paymentMethodId: formatted.paymentMethodId || existing.paymentMethodId,
+                paymentMethodName: formatted.paymentMethodName || existing.paymentMethodName,
+                cardId: formatted.cardId || existing.cardId,
+                cardName: formatted.cardName || existing.cardName,
+                isInstallment: formatted.isInstallment ?? existing.isInstallment,
+                isIndefinite: formatted.isIndefinite ?? existing.isIndefinite,
+                installmentNumber: formatted.installmentNumber ?? existing.installmentNumber,
+                totalInstallments: formatted.totalInstallments ?? existing.totalInstallments,
+                installmentPurchaseId: formatted.installmentPurchaseId || existing.installmentPurchaseId,
+                notes: formatted.notes || existing.notes,
+              };
+              if (
+                existing.cardId !== merged.cardId ||
+                existing.cardName !== merged.cardName ||
+                existing.amount !== merged.amount ||
+                existing.description !== merged.description ||
+                existing.status !== merged.status
+              ) {
+                map.set(pgExp.id, merged);
+                hasChange = true;
+              }
             }
           });
           return hasChange ? Array.from(map.values()) : prev;
@@ -996,6 +1024,10 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
     } catch (err) {
       console.warn('Aviso ao sincronizar dados externos do PostgreSQL:', err);
+    } finally {
+      setTimeout(() => {
+        isRefreshingFromPgRef.current = false;
+      }, 5000);
     }
   }, [currentUser, isDemoUser]);
 
@@ -1006,10 +1038,10 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     // Sincronização inicial
     refreshDataFromPostgres();
 
-    // Polling a cada 20 segundos para capturar novos atendimentos do outro sistema
+    // Polling a cada 45 segundos para capturar novos lançamentos externos sem sobrecarga
     const intervalId = setInterval(() => {
       refreshDataFromPostgres();
-    }, 20000);
+    }, 45000);
 
     // Recarregar quando o usuário volta para a aba do sistema
     const handleFocus = () => {
@@ -1348,6 +1380,40 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     // Firestore implementation
     if (updateAllInstallments && targetExp?.installmentPurchaseId) {
+      // Atualização imediata no estado local para garantir resposta instantânea da UI
+      setExpenses((prev) =>
+        prev.map((e) =>
+          e.installmentPurchaseId === targetExp.installmentPurchaseId
+            ? {
+                ...e,
+                paymentMethod: data.paymentMethod ?? e.paymentMethod,
+                cardId: data.cardId !== undefined ? data.cardId : e.cardId,
+                cardName: data.cardName !== undefined ? data.cardName : e.cardName,
+                categoryId: data.categoryId ?? e.categoryId,
+                categoryName: data.categoryName ?? e.categoryName,
+                updatedAt: nowIso,
+                ...(e.id === id ? data : {}),
+              }
+            : e.id === id
+            ? { ...e, ...data, updatedAt: nowIso }
+            : e
+        )
+      );
+      setInstallmentPurchases((prev) =>
+        prev.map((p) =>
+          p.id === targetExp.installmentPurchaseId
+            ? {
+                ...p,
+                cardId: data.cardId || p.cardId,
+                cardName: data.cardName || p.cardName,
+                categoryId: data.categoryId || p.categoryId,
+                categoryName: data.categoryName || p.categoryName,
+                updatedAt: nowIso,
+              }
+            : p
+        )
+      );
+
       const relatedExpenses = expenses.filter(
         (e) => e.installmentPurchaseId === targetExp.installmentPurchaseId
       );
@@ -1384,6 +1450,11 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       await batch.commit();
       return;
     }
+
+    // Atualização otimista no estado local para garantir que a UI e a sincronização em segundo plano nunca percam dados
+    setExpenses((prev) =>
+      prev.map((e) => (e.id === id ? { ...e, ...data, updatedAt: nowIso } : e))
+    );
 
     await updateDoc(
       doc(db, 'expenses', id),
