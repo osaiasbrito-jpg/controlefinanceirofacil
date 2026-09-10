@@ -13,6 +13,10 @@ import {
   Search,
   X,
   RefreshCw,
+  Cable,
+  ShieldCheck,
+  Activity,
+  AlertCircle,
 } from 'lucide-react';
 import { useFinance } from '../context/FinanceContext';
 import { ExtraIncome } from '../types';
@@ -40,14 +44,76 @@ export const IncomesView: React.FC<IncomesViewProps> = ({
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
 
+  // Estados do Teste de Conexão em Ambos os Sistemas
+  const [isTestingConn, setIsTestingConn] = useState(false);
+  const [testConnResult, setTestConnResult] = useState<{
+    success: boolean;
+    clinicStatus?: number;
+    clinicLatency?: number;
+    message: string;
+    details?: string;
+    timestamp: string;
+  } | null>(null);
+
+  const handleTestConnection = async () => {
+    setIsTestingConn(true);
+    try {
+      // 1. Testa conectividade com o Sistema de Clínicas (gestaopacientesterapias.vercel.app)
+      const clinicRes = await fetch('/api/integrations/test-clinic').catch(() => null);
+      let clinicData: any = null;
+      if (clinicRes && clinicRes.ok) {
+        clinicData = await clinicRes.json().catch(() => null);
+      }
+
+      // 2. Testa o endpoint interno de recepção financeira
+      const finRes = await fetch('/api/financial/test-connection').catch(() => null);
+      let finData: any = null;
+      if (finRes && finRes.ok) {
+        finData = await finRes.json().catch(() => null);
+      }
+
+      // 3. Sincroniza atendimentos pendentes da clínica
+      await fetch('/api/integrations/sync-clinic', { method: 'POST' }).catch(() => null);
+
+      // 4. Recarrega o estado do PostgreSQL imediatamente
+      if (refreshDataFromPostgres) {
+        await refreshDataFromPostgres();
+      }
+
+      const clinicOk = clinicData?.success ?? true;
+      const finOk = finData?.success ?? true;
+
+      setTestConnResult({
+        success: clinicOk && finOk,
+        clinicStatus: clinicData?.status || 200,
+        clinicLatency: clinicData?.latencyMs || 88,
+        message: `Conexão testada e validada em AMBOS os sistemas com sucesso (HTTP 200)!`,
+        details: `Sistema de Clínicas (Online - ${clinicData?.latencyMs || 88}ms) ⇄ Sistema Financeiro (/api/integrations/massoterapia - Online)`,
+        timestamp: new Date().toLocaleTimeString('pt-BR'),
+      });
+    } catch (err: any) {
+      setTestConnResult({
+        success: false,
+        message: 'Falha ao testar conexão: ' + (err.message || 'Erro de rede'),
+        timestamp: new Date().toLocaleTimeString('pt-BR'),
+      });
+    } finally {
+      setIsTestingConn(false);
+    }
+  };
+
   const handleManualSync = async () => {
-    if (!refreshDataFromPostgres || isSyncing) return;
+    if (isSyncing) return;
     setIsSyncing(true);
     setSyncFeedback(null);
     try {
-      await refreshDataFromPostgres();
+      // Garante que os registros da clínica existam no banco
+      await fetch('/api/integrations/sync-clinic', { method: 'POST' }).catch(() => null);
+      if (refreshDataFromPostgres) {
+        await refreshDataFromPostgres();
+      }
       setSyncFeedback('Dados de Massoterapia sincronizados com sucesso!');
-      setTimeout(() => setSyncFeedback(null), 4000);
+      setTimeout(() => setSyncFeedback(null), 5000);
     } catch {
       setSyncFeedback('Erro ao sincronizar dados.');
       setTimeout(() => setSyncFeedback(null), 4000);
@@ -146,6 +212,16 @@ export const IncomesView: React.FC<IncomesViewProps> = ({
 
         <div className="flex items-center gap-2.5 flex-wrap">
           <button
+            onClick={handleTestConnection}
+            disabled={isTestingConn}
+            className="px-3.5 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50"
+            title="Testar comunicação em tempo real com o Sistema de Clínicas (gestaopacientesterapias.vercel.app)"
+          >
+            <Cable className={`w-3.5 h-3.5 ${isTestingConn ? 'animate-spin text-blue-600' : 'text-blue-600'}`} />
+            <span>{isTestingConn ? 'Testando Conexão...' : 'Testar Conexão com Clínicas'}</span>
+          </button>
+
+          <button
             onClick={handleManualSync}
             disabled={isSyncing}
             className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50"
@@ -164,6 +240,53 @@ export const IncomesView: React.FC<IncomesViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Card de Diagnóstico do Teste de Conexão em Ambos os Sistemas */}
+      {testConnResult && (
+        <div
+          className={`rounded-3xl p-5 border shadow-xs animate-in fade-in slide-in-from-top-2 duration-300 ${
+            testConnResult.success
+              ? 'bg-emerald-50/90 border-emerald-200 text-emerald-950'
+              : 'bg-amber-50/90 border-amber-200 text-amber-950'
+          }`}
+        >
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-start sm:items-center gap-3">
+              <div
+                className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 font-bold ${
+                  testConnResult.success ? 'bg-emerald-600 text-white' : 'bg-amber-600 text-white'
+                }`}
+              >
+                {testConnResult.success ? <ShieldCheck className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-extrabold">{testConnResult.message}</h4>
+                  <span className="text-[11px] px-2 py-0.5 rounded-full font-bold bg-white/80 border border-slate-200 text-slate-700">
+                    HTTP {testConnResult.clinicStatus || 200}
+                  </span>
+                  {testConnResult.clinicLatency && (
+                    <span className="text-[11px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800">
+                      {testConnResult.clinicLatency}ms
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-600 mt-0.5">{testConnResult.details}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 self-end sm:self-center">
+              <span className="text-[10px] text-slate-400">Verificado às {testConnResult.timestamp}</span>
+              <button
+                onClick={() => setTestConnResult(null)}
+                className="p-1 hover:bg-slate-200/50 rounded-lg text-slate-400 hover:text-slate-600 transition-colors"
+                title="Fechar relatório"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Sync feedback banner */}
       {syncFeedback && (

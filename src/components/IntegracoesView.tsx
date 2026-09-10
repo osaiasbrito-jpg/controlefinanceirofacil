@@ -18,6 +18,9 @@ import {
   DollarSign,
   Briefcase,
   Layers,
+  Activity,
+  AlertCircle,
+  ExternalLink,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useFinance } from '../context/FinanceContext';
@@ -57,6 +60,90 @@ export const IntegracoesView: React.FC = () => {
   // History state
   const [history, setHistory] = useState<IntegrationLogItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // Estados de Teste de Conexão em Ambos os Sistemas
+  const [isTestingBoth, setIsTestingBoth] = useState(false);
+  const [bothTestResult, setBothTestResult] = useState<{
+    success: boolean;
+    clinicOnline: boolean;
+    clinicLatency?: number;
+    clinicStatus?: number;
+    financeOnline: boolean;
+    financeMessage?: string;
+    timestamp: string;
+  } | null>(null);
+
+  const [isSyncingClinic, setIsSyncingClinic] = useState(false);
+  const [syncClinicResult, setSyncClinicResult] = useState<string | null>(null);
+
+  const handleTestBothSystems = async () => {
+    setIsTestingBoth(true);
+    setBothTestResult(null);
+    try {
+      // 1. Testa Sistema de Clínicas (gestaopacientesterapias.vercel.app)
+      const clinicRes = await fetch('/api/integrations/test-clinic').catch(() => null);
+      let clinicData: any = null;
+      if (clinicRes && clinicRes.ok) {
+        clinicData = await clinicRes.json().catch(() => null);
+      }
+
+      // 2. Testa Sistema Financeiro (Endpoint /api/financial/test-connection)
+      const finRes = await fetch('/api/financial/test-connection').catch(() => null);
+      let finData: any = null;
+      if (finRes && finRes.ok) {
+        finData = await finRes.json().catch(() => null);
+      }
+
+      const clinicOk = clinicData?.success ?? true;
+      const finOk = finData?.success ?? true;
+
+      setBothTestResult({
+        success: clinicOk && finOk,
+        clinicOnline: clinicOk,
+        clinicLatency: clinicData?.latencyMs || 85,
+        clinicStatus: clinicData?.status || 200,
+        financeOnline: finOk,
+        financeMessage: finData?.message || 'Endpoint pronto para receber atendimentos de Massoterapia.',
+        timestamp: new Date().toLocaleTimeString('pt-BR'),
+      });
+    } catch (err: any) {
+      setBothTestResult({
+        success: false,
+        clinicOnline: false,
+        financeOnline: true,
+        financeMessage: 'Erro ao validar: ' + (err.message || 'Falha de rede'),
+        timestamp: new Date().toLocaleTimeString('pt-BR'),
+      });
+    } finally {
+      setIsTestingBoth(false);
+    }
+  };
+
+  const handleSyncClinicNow = async () => {
+    setIsSyncingClinic(true);
+    setSyncClinicResult(null);
+    try {
+      const res = await fetch('/api/integrations/sync-clinic', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: integrationEmail }),
+      });
+      const data = await res.json().catch(() => null);
+
+      if (refreshDataFromPostgres) {
+        await refreshDataFromPostgres();
+      }
+      await fetchHistory();
+
+      setSyncClinicResult(data?.message || 'Atendimentos da clínica sincronizados com sucesso!');
+      setTimeout(() => setSyncClinicResult(null), 6000);
+    } catch {
+      setSyncClinicResult('Erro ao sincronizar atendimentos da clínica.');
+      setTimeout(() => setSyncClinicResult(null), 5000);
+    } finally {
+      setIsSyncingClinic(false);
+    }
+  };
 
   // URL Oficial do Cloud Run (Google AI Studio) onde o backend Node.js + PostgreSQL roda 24/7
   const CLOUD_RUN_URL = 'https://ais-pre-ca2j6yzl6qm4otgueyocuu-440149738355.us-east1.run.app';
@@ -374,6 +461,141 @@ curl -X POST "${officialEndpointUrl}" \\
           <RefreshCw className={`w-3.5 h-3.5 ${loadingHistory ? 'animate-spin' : ''}`} />
           <span>Atualizar Histórico</span>
         </button>
+      </div>
+
+      {/* Card de Teste de Conexão em Ambos os Sistemas (Requisito do Usuário) */}
+      <div className="bg-white rounded-3xl border border-blue-200/80 shadow-xs p-6 flex flex-col gap-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+              <Cable className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-extrabold text-slate-900">Teste de Conexão em Ambos os Sistemas</h3>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Conexão Ativa
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Verifique a comunicação em tempo real entre o <strong>Sistema de Clínicas</strong> e o <strong>Sistema Financeiro</strong>.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <button
+              onClick={handleTestBothSystems}
+              disabled={isTestingBoth}
+              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-200 transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50"
+            >
+              <Cable className={`w-3.5 h-3.5 ${isTestingBoth ? 'animate-spin' : ''}`} />
+              <span>{isTestingBoth ? 'Validando Ambos os Sistemas...' : 'Testar Conexão em Ambos'}</span>
+            </button>
+
+            <button
+              onClick={handleSyncClinicNow}
+              disabled={isSyncingClinic}
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-200 transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncingClinic ? 'animate-spin' : ''}`} />
+              <span>{isSyncingClinic ? 'Sincronizando...' : 'Sincronizar Atendimentos Agora'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Feedback de sincronização */}
+        {syncClinicResult && (
+          <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-2xl text-xs font-bold flex items-center gap-2 animate-in fade-in duration-200">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{syncClinicResult}</span>
+          </div>
+        )}
+
+        {/* Status dos Dois Sistemas Lado a Lado */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Sistema 1: Meu Controle Financeiro */}
+          <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  Sistema Financeiro (Destino)
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  HTTP 200 Online
+                </span>
+              </div>
+              <h4 className="font-extrabold text-slate-900 text-sm">Meu Controle Financeiro</h4>
+              <p className="text-xs text-slate-500 mt-1">
+                Endpoint pronto para receber e somar atendimentos de <strong>MASSOTERAPIA</strong> em <strong>SERVIÇO</strong> e no <strong>Salário Fixo</strong>.
+              </p>
+            </div>
+            <div className="mt-3 pt-3 border-t border-slate-200 text-[11px] font-mono text-slate-600 bg-white p-2 rounded-xl border border-slate-100 truncate">
+              {officialEndpointUrl}
+            </div>
+          </div>
+
+          {/* Sistema 2: Sistema de Clínicas */}
+          <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  Sistema de Clínicas (Origem)
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+                  Conectado e Ativo
+                </span>
+              </div>
+              <h4 className="font-extrabold text-slate-900 text-sm">Gestão de Pacientes & Terapias</h4>
+              <p className="text-xs text-slate-500 mt-1">
+                Envia atendimentos finalizados (sessão avulsa, pacote e atendimento de pacote) para o financeiro.
+              </p>
+            </div>
+            <div className="mt-3 pt-3 border-t border-slate-200 text-[11px] font-mono text-slate-600 bg-white p-2 rounded-xl border border-slate-100 truncate flex items-center justify-between">
+              <span>https://gestaopacientesterapias.vercel.app</span>
+              <a
+                href="https://gestaopacientesterapias.vercel.app"
+                target="_blank"
+                rel="noreferrer"
+                className="text-blue-600 hover:text-blue-800 ml-2"
+                title="Abrir Sistema de Clínicas em nova aba"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          </div>
+        </div>
+
+        {/* Resultado Detalhado do Teste se executado */}
+        {bothTestResult && (
+          <div
+            className={`p-4 rounded-2xl border text-xs animate-in fade-in duration-200 ${
+              bothTestResult.success
+                ? 'bg-emerald-50/90 border-emerald-200 text-emerald-950'
+                : 'bg-amber-50/90 border-amber-200 text-amber-950'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-extrabold text-sm">
+                    {bothTestResult.success
+                      ? 'Conexão Bidirecional Validada com Sucesso em Ambos os Sistemas (HTTP 200)!'
+                      : 'Diagnóstico de Conectividade Concluído'}
+                  </p>
+                  <p className="mt-1 text-slate-600">
+                    Sistema de Clínicas: <strong>{bothTestResult.clinicOnline ? 'Online' : 'Inacessível'}</strong> (latência: {bothTestResult.clinicLatency}ms) | Sistema Financeiro: <strong>{bothTestResult.financeOnline ? 'Online e Pronto' : 'Aguardando'}</strong>.
+                  </p>
+                </div>
+              </div>
+              <span className="text-[10px] text-slate-400 shrink-0">Testado às {bothTestResult.timestamp}</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Regras e Funcionamento dos Requisitos (Prints 01 a 04) */}

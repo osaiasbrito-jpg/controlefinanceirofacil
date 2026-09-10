@@ -592,7 +592,13 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       (snapshot) => {
         const list: Salary[] = [];
         snapshot.forEach((docSnap) => list.push({ id: docSnap.id, ...(docSnap.data() as any) }));
-        setSalaries(list);
+        setSalaries((prev) => {
+          const map = new Map<string, Salary>();
+          // Preserva itens carregados do PostgreSQL ou de integração
+          prev.forEach((s) => map.set(s.id, s));
+          list.forEach((s) => map.set(s.id, s));
+          return Array.from(map.values());
+        });
       },
       (err) => handleFirestoreError(err, OperationType.LIST, 'salaries')
     );
@@ -627,7 +633,13 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
           }
         });
 
-        setIncomes(list);
+        setIncomes((prev) => {
+          const map = new Map<string, ExtraIncome>();
+          // Preserva itens do PostgreSQL / integração (ex: Atendimentos de Massoterapia / SERVIÇO)
+          prev.forEach((item) => map.set(item.id, item));
+          list.forEach((item) => map.set(item.id, item));
+          return Array.from(map.values());
+        });
       },
       (err) => handleFirestoreError(err, OperationType.LIST, 'incomes')
     );
@@ -843,6 +855,10 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
             if (!map.has(pgInc.id)) {
               map.set(pgInc.id, formatted);
               hasNew = true;
+              // Salva transparentemente no Firestore Web SDK com a autenticação ativa do usuário
+              if (currentUser?.uid && !isDemoUser) {
+                setDoc(doc(db, 'incomes', formatted.id), sanitizeData(formatted), { merge: true }).catch(() => {});
+              }
             }
           });
           return hasNew ? Array.from(map.values()) : prev;
@@ -871,6 +887,10 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
             if (!map.has(pgSal.id)) {
               map.set(pgSal.id, formatted);
               hasNew = true;
+              // Salva transparentemente no Firestore Web SDK com a autenticação ativa do usuário
+              if (currentUser?.uid && !isDemoUser) {
+                setDoc(doc(db, 'salaries', formatted.id), sanitizeData(formatted), { merge: true }).catch(() => {});
+              }
             }
           });
           return hasNew ? Array.from(map.values()) : prev;

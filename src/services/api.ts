@@ -15,6 +15,36 @@ export interface DbSyncPayload {
   settings?: any;
 }
 
+export const CLOUD_RUN_URL = 'https://ais-pre-ca2j6yzl6qm4otgueyocuu-440149738355.us-east1.run.app';
+
+/**
+ * Executa fetch resiliente:
+ * Se o host atual for Netlify ou se a resposta for HTML (fallback SPA estático do Netlify),
+ * redireciona automaticamente para o backend Express no Cloud Run.
+ */
+async function resilientFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  const isNetlify = typeof window !== 'undefined' && window.location.hostname.includes('netlify.app');
+  const targetUrls = isNetlify
+    ? [`${CLOUD_RUN_URL}${path}`, path]
+    : [path, `${CLOUD_RUN_URL}${path}`];
+
+  let lastError: any = null;
+  for (const url of targetUrls) {
+    try {
+      const res = await fetch(url, options);
+      const contentType = res.headers.get('content-type') || '';
+      // Se retornou HTML mas a requisição espera API/JSON, ignora e tenta o Cloud Run
+      if (contentType.includes('text/html') && url.startsWith('/')) {
+        continue;
+      }
+      return res;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError || new Error(`Falha ao conectar com o serviço em ${path}`);
+}
+
 export async function syncUserWithPostgres(user: { uid: string; email?: string | null; displayName?: string | null; photoURL?: string | null }, idToken?: string) {
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -22,7 +52,7 @@ export async function syncUserWithPostgres(user: { uid: string; email?: string |
       headers['Authorization'] = `Bearer ${idToken}`;
     }
 
-    const res = await fetch('/api/auth/sync-user', {
+    const res = await resilientFetch('/api/auth/sync-user', {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -57,7 +87,7 @@ export async function loadUserDataFromPostgres(userId: string, idToken?: string,
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-    const res = await fetch(`/api/data?${params.toString()}`, {
+    const res = await resilientFetch(`/api/data?${params.toString()}`, {
       method: 'GET',
       headers,
       signal: controller.signal,
@@ -86,7 +116,7 @@ export async function syncDataToPostgres(payload: DbSyncPayload, idToken?: strin
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 25000);
 
-    const res = await fetch('/api/sync', {
+    const res = await resilientFetch('/api/sync', {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
@@ -112,7 +142,7 @@ export async function deleteEntityFromPostgres(table: string, id: string, userId
       headers['Authorization'] = `Bearer ${idToken}`;
     }
 
-    const res = await fetch(`/api/entity/${encodeURIComponent(table)}/${encodeURIComponent(id)}?userId=${encodeURIComponent(userId)}`, {
+    const res = await resilientFetch(`/api/entity/${encodeURIComponent(table)}/${encodeURIComponent(id)}?userId=${encodeURIComponent(userId)}`, {
       method: 'DELETE',
       headers,
     });
@@ -130,7 +160,7 @@ export async function deleteEntityFromPostgres(table: string, id: string, userId
 
 export async function superuserLogin(password: string) {
   try {
-    const res = await fetch('/api/auth/superuser-login', {
+    const res = await resilientFetch('/api/auth/superuser-login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -151,7 +181,7 @@ export async function superuserLogin(password: string) {
 
 export async function checkPostgresHealth() {
   try {
-    const res = await fetch('/api/health/db');
+    const res = await resilientFetch('/api/health/db');
     return await res.json();
   } catch (error: any) {
     return { status: 'error', error: error.message };

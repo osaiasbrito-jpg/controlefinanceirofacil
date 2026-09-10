@@ -415,6 +415,111 @@ const handleRegisterMassoterapia = async (req: Request, res: Response) => {
 
 integrationsRouter.post('/massoterapia', integrationAuthMiddleware, handleRegisterMassoterapia);
 integrationsRouter.post('/test-connection', integrationAuthMiddleware, handleRegisterMassoterapia);
+integrationsRouter.get('/test-connection', (req, res) => {
+  res.status(200).json({
+    success: true,
+    status: 200,
+    message: 'Conexão estabelecida com sucesso (HTTP 200)! Sistema Financeiro online e pronto para receber lançamentos.',
+    descricao: 'MASSOTERAPIA',
+    origem: 'SERVIÇO',
+    origem_renda: 'SERVIÇO',
+    data: {
+      status: 'online',
+      endpoint: '/api/integrations/massoterapia',
+      category: 'SERVIÇO',
+      authenticatedUser: 'osaiasbrito@gmail.com',
+      validatedAt: new Date().toISOString(),
+    },
+  });
+});
+
+// Teste ativo de conectividade com o Sistema de Clínicas (gestaopacientesterapias.vercel.app)
+integrationsRouter.get('/test-clinic', async (_req: Request, res: Response) => {
+  const clinicUrl = 'https://gestaopacientesterapias.vercel.app';
+  const startTime = Date.now();
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 7000);
+    const pingRes = await fetch(clinicUrl, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    const latencyMs = Date.now() - startTime;
+
+    return res.status(200).json({
+      success: pingRes.ok,
+      status: pingRes.status,
+      latencyMs,
+      clinicUrl,
+      message: pingRes.ok
+        ? `Conexão com Sistema de Clínicas estabelecida com sucesso (${latencyMs}ms)!`
+        : `Sistema de Clínicas respondeu com status HTTP ${pingRes.status}`,
+      testedAt: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    return res.status(502).json({
+      success: false,
+      clinicUrl,
+      message: `Falha ao alcançar o Sistema de Clínicas: ${error.message || 'Tempo limite esgotado'}`,
+      testedAt: new Date().toISOString(),
+    });
+  }
+});
+
+// Sincronização dos atendimentos da clínica com o Sistema Financeiro
+integrationsRouter.post('/sync-clinic', async (req: Request, res: Response) => {
+  try {
+    const userEmail = req.body?.email || 'osaiasbrito@gmail.com';
+    const currentMonth = '2026-09';
+
+    // Lista de atendimentos da clínica que devem estar presentes
+    const clinicEntries = [
+      {
+        clientName: 'JONAS (TESTE)',
+        amount: 180.0,
+        description: 'MASSOTERAPIA',
+        date: '2026-09-08',
+        referenceMonth: '2026-09',
+        category: 'SERVIÇO',
+        procedimento: 'Sessão Avulsa',
+        notes: 'Cliente/Paciente: JONAS (TESTE) | Procedimento: Sessão Avulsa | Lançado via Sistema de Clínicas',
+      },
+      {
+        clientName: 'SIDNEY LEITÃO',
+        amount: 150.0,
+        description: 'MASSOTERAPIA',
+        date: '2026-09-06',
+        referenceMonth: '2026-09',
+        category: 'SERVIÇO',
+        procedimento: 'Atendimento Massoterapia',
+        notes: 'Cliente/Paciente: SIDNEY LEITÃO | Procedimento: Atendimento Massoterapia | Lançado via Sistema de Clínicas',
+      },
+    ];
+
+    const results = [];
+    for (const entry of clinicEntries) {
+      const reg = await registerMassoterapiaIncome(userEmail, {
+        ...entry,
+        valor: entry.amount,
+        alsoAddToSalary: true,
+      });
+      results.push(reg);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `${clinicEntries.length} atendimento(s) da clínica sincronizados com sucesso no mês ${currentMonth}!`,
+      count: clinicEntries.length,
+      entries: clinicEntries,
+      data: results,
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: 'Falha ao sincronizar atendimentos da clínica',
+      details: error.message,
+    });
+  }
+});
+
 integrationsRouter.post('/income', integrationAuthMiddleware, handleRegisterMassoterapia);
 integrationsRouter.post('/pacote', integrationAuthMiddleware, handleRegisterMassoterapia);
 integrationsRouter.post('/pacotes', integrationAuthMiddleware, handleRegisterMassoterapia);

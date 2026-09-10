@@ -461,8 +461,9 @@ export async function registerMassoterapiaIncome(
     };
   }
 
-  // 5. Sincronização direta com o Firestore do Firebase (se Admin Firestore estiver ativo)
-  if (adminDb) {
+  // 5. Sincronização direta com o Firestore do Firebase (apenas se credenciais de Service Account existirem)
+  const hasServiceAccount = !!(process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.FIREBASE_SERVICE_ACCOUNT);
+  if (adminDb && hasServiceAccount) {
     try {
       await adminDb.collection('incomes').doc(incomeId).set({
         id: incomeId,
@@ -495,8 +496,12 @@ export async function registerMassoterapiaIncome(
           updatedAt: new Date().toISOString(),
         });
       }
-    } catch (fsErr) {
-      console.warn('Aviso ao sincronizar diretamente com Firestore Admin:', fsErr);
+    } catch (fsErr: any) {
+      // Ignora silenciosamente se o container não tiver privilégios de Service Account no Firestore Admin
+      // A persistência oficial e primária reside no PostgreSQL
+      if (process.env.DEBUG_FIRESTORE) {
+        console.warn('Aviso ao sincronizar diretamente com Firestore Admin:', fsErr?.message || fsErr);
+      }
     }
   }
 
