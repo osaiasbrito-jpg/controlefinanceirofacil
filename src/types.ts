@@ -110,6 +110,7 @@ export interface ExtraIncome {
   status: IncomeStatus;
   isRecurring?: boolean; // true = Padrão / Recorrente para todos os meses; false = Pontual deste mês
   recurrenceDay?: number; // Dia previsto de recebimento todo mês (1-31)
+  clientName?: string;
   notes?: string;
   createdAt: string;
   updatedAt: string;

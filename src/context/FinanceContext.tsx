@@ -15,6 +15,7 @@ import {
   runTransaction,
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
+import { supabase } from '../supabaseClient';
 import { useAuth } from './AuthContext';
 import {
   Salary,
@@ -577,14 +578,28 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     setLoading(true);
     const uid = currentUser.uid;
 
-    // Subscriptions
-    const salariesQuery = query(collection(db, 'salaries'), where('userId', '==', uid));
-    const incomesQuery = query(collection(db, 'incomes'), where('userId', '==', uid));
-    const expensesQuery = query(collection(db, 'expenses'), where('userId', '==', uid));
-    const cardsQuery = query(collection(db, 'creditCards'), where('userId', '==', uid));
-    const paymentMethodsQuery = query(collection(db, 'paymentMethods'), where('userId', 'in', [uid, 'default']));
-    const installmentsQuery = query(collection(db, 'installmentPurchases'), where('userId', '==', uid));
-    const categoriesQuery = query(collection(db, 'categories'), where('userId', 'in', [uid, 'system']));
+    const isOsaias =
+      currentUser.email?.toLowerCase() === 'osaiasbrito@gmail.com' ||
+      currentUser.uid?.toLowerCase().includes('osaias');
+
+    const allowedUserIds = Array.from(
+      new Set(
+        [
+          currentUser.uid,
+          currentUser.email,
+          ...(isOsaias ? ['osaiasbrito@gmail.com', 'super_admin_osaiasbrito'] : []),
+        ].filter(Boolean)
+      )
+    ) as string[];
+
+    // Subscriptions com suporte a múltiplos identificadores de usuário
+    const salariesQuery = query(collection(db, 'salaries'), where('userId', 'in', allowedUserIds));
+    const incomesQuery = query(collection(db, 'incomes'), where('userId', 'in', allowedUserIds));
+    const expensesQuery = query(collection(db, 'expenses'), where('userId', 'in', allowedUserIds));
+    const cardsQuery = query(collection(db, 'creditCards'), where('userId', 'in', allowedUserIds));
+    const paymentMethodsQuery = query(collection(db, 'paymentMethods'), where('userId', 'in', [...allowedUserIds, 'default']));
+    const installmentsQuery = query(collection(db, 'installmentPurchases'), where('userId', 'in', allowedUserIds));
+    const categoriesQuery = query(collection(db, 'categories'), where('userId', 'in', [...allowedUserIds, 'system']));
     const settingsDocRef = doc(db, 'userSettings', uid);
 
     const unsubSalaries = onSnapshot(
@@ -828,6 +843,59 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         currentUser.uid?.toLowerCase().includes('osaias');
       const targetUserId = isOsaias ? 'osaiasbrito@gmail.com' : (currentUser.uid || 'osaiasbrito@gmail.com');
 
+      // 0. Consulta direta e resiliente ao Supabase para capturar Atendimentos de Massoterapia/Fisioterapia
+      try {
+        const allowedUserIds = Array.from(
+          new Set(
+            [
+              currentUser.uid,
+              currentUser.email,
+              ...(isOsaias ? ['osaiasbrito@gmail.com', 'super_admin_osaiasbrito'] : []),
+            ].filter(Boolean)
+          )
+        ) as string[];
+
+        const { data: sbIncomes, error: sbErr } = await supabase
+          .from('extra_incomes')
+          .select('*')
+          .in('user_id', allowedUserIds);
+
+        if (!sbErr && Array.isArray(sbIncomes) && sbIncomes.length > 0) {
+          setIncomes((prev) => {
+            const map = new Map<string, ExtraIncome>();
+            prev.forEach((item) => map.set(item.id, item));
+            let hasNew = false;
+            sbIncomes.forEach((row: any) => {
+              const formatted: ExtraIncome = {
+                id: row.id,
+                userId: currentUser.uid || row.user_id || 'osaiasbrito@gmail.com',
+                description: row.description || row.descricao || 'MASSOTERAPIA',
+                amount: Number(row.amount || row.valor || 0),
+                referenceMonth: row.reference_month || row.mes_referencia || (row.date ? row.date.substring(0, 7) : '2026-09'),
+                date: row.date || row.data || new Date().toISOString().split('T')[0],
+                origin: row.source || row.origin || row.origem_renda || 'MASSOTERAPIA',
+                status: row.status === 'PENDING' ? 'PENDING' : 'RECEIVED',
+                notes: row.notes || row.observacao || (row.client_name ? `Cliente/Paciente: ${row.client_name}` : ''),
+                clientName: row.client_name || row.cliente_paciente || undefined,
+                createdAt: row.created_at || new Date().toISOString(),
+                updatedAt: row.updated_at || new Date().toISOString(),
+              };
+
+              if (!map.has(row.id)) {
+                map.set(row.id, formatted);
+                hasNew = true;
+                if (currentUser?.uid && !isDemoUser) {
+                  setDoc(doc(db, 'incomes', formatted.id), sanitizeData(formatted), { merge: true }).catch(() => {});
+                }
+              }
+            });
+            return hasNew ? Array.from(map.values()) : prev;
+          });
+        }
+      } catch (sbErr) {
+        console.warn('Aviso ao consultar Supabase diretamente:', sbErr);
+      }
+
       const pgData = await loadUserDataFromPostgres(targetUserId, token, currentUser.email || undefined);
       if (!pgData) return;
 
@@ -1051,7 +1119,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   }, [currentUser, isDemoUser]);
 
-  // Polling periódico e recarregamento automático de dados externos
+  // Polling periódico e escuta em tempo real do Supabase
   useEffect(() => {
     if (!currentUser || isDemoUser) return;
 
@@ -1069,9 +1137,22 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     };
     window.addEventListener('focus', handleFocus);
 
+    // Escuta em tempo real de novos lançamentos de Massoterapia / Fisioterapia no Supabase
+    const channel = supabase
+      .channel('realtime:extra_incomes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'extra_incomes' },
+        () => {
+          refreshDataFromPostgres();
+        }
+      )
+      .subscribe();
+
     return () => {
       clearInterval(intervalId);
       window.removeEventListener('focus', handleFocus);
+      supabase.removeChannel(channel);
     };
   }, [currentUser, isDemoUser, refreshDataFromPostgres]);
 
