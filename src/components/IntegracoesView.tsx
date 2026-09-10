@@ -28,6 +28,7 @@ import {
   Lock,
   Globe,
   Mail,
+  Database,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useFinance } from '../context/FinanceContext';
@@ -152,14 +153,19 @@ export const IntegracoesView: React.FC = () => {
     }
   };
 
-  // URL Oficial do Cloud Run (Google AI Studio) onde o backend Node.js + PostgreSQL roda 24/7
+  // URLs e Credenciais Oficiais
+  const NETLIFY_PROD_URL = 'https://gestaofinanceirafacil.netlify.app';
   const CLOUD_RUN_URL = 'https://ais-pre-ca2j6yzl6qm4otgueyocuu-440149738355.us-east1.run.app';
-  const isNetlifyHost = typeof window !== 'undefined' && window.location.hostname.includes('netlify.app');
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : CLOUD_RUN_URL;
+  const SUPABASE_DIRECT_URL = 'https://dpaylubvupjjokpukuxy.supabase.co';
+  const SUPABASE_DIRECT_KEY = 'sb_publishable_uDVtjc0J1dGBgS510tpphg_oSrmPUTu';
+  const SUPABASE_DIRECT_TABLE = 'extra_incomes';
 
-  // Valores Padrão Recomendados
-  const defaultOfficialUrl = `${CLOUD_RUN_URL}/api/integrations/massoterapia`;
-  const defaultSecondaryUrl = `${baseUrl}/api/integrations/massoterapia`;
+  const isNetlifyHost = typeof window !== 'undefined' && window.location.hostname.includes('netlify.app');
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : NETLIFY_PROD_URL;
+
+  // Valores Padrão Recomendados: A URL de produção acessível na internet sem restrição de IP
+  const defaultOfficialUrl = `${NETLIFY_PROD_URL}/api/integrations/massoterapia`;
+  const defaultSecondaryUrl = `${CLOUD_RUN_URL}/api/integrations/massoterapia`;
   const defaultEmail = userProfile?.email || currentUser?.email || 'osaiasbrito@gmail.com';
   const defaultPassword = 'Ojf6994@#gestaoPessoas';
 
@@ -842,6 +848,204 @@ curl -X POST "${officialEndpointUrl}" \\
           <p className="text-xs text-slate-600 leading-relaxed">
             No cadastro de pacote, o valor é informado <strong>uma única vez</strong> e entra na soma do ganho total do mês.
           </p>
+        </div>
+      </div>
+
+      {/* Guia de Solução Definitiva do Erro "Failed to fetch" no Sistema Qi Zen */}
+      <div className="bg-gradient-to-br from-emerald-950 via-slate-900 to-slate-950 rounded-3xl p-6 text-white shadow-lg border border-emerald-500/30">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-white/10">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-400 flex items-center justify-center shrink-0">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-extrabold text-white tracking-tight">
+                  Como Corrigir o Erro &quot;Failed to fetch&quot; no Sistema de Clínicas (Qi Zen)
+                </h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/30 text-emerald-300 border border-emerald-400/30">
+                  Solução Pronta
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                O erro <code>Failed to fetch</code> ocorria porque a URL anterior terminada em <code>.run.app</code> era temporária de desenvolvimento do Google Cloud.
+                Escolha abaixo uma das duas opções 100% funcionais para conectar seu sistema:
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-5">
+          {/* Opção 1: Supabase / PostgreSQL Direto (Recomendado) */}
+          <div className="bg-white/5 hover:bg-white/10 transition-all rounded-2xl p-4 border border-emerald-500/30 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Database className="w-4 h-4 text-emerald-400" />
+                  <span className="text-xs font-black uppercase tracking-wider text-emerald-400">
+                    Opção 1 (Recomendada): Supabase Direto
+                  </span>
+                </div>
+                <span className="text-[10px] font-extrabold bg-emerald-500 text-slate-950 px-2 py-0.5 rounded-full">
+                  Mais Rápido & Sem Erros
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300 mb-3 leading-relaxed">
+                No sistema de clínicas, clique no botão <strong>[ 🗄️ PostgreSQL / Supabase (Direto) ]</strong> no topo da tela e cole as credenciais abaixo:
+              </p>
+
+              <div className="space-y-2 text-[11px] font-mono">
+                {/* Supabase URL */}
+                <div className="bg-black/40 rounded-xl p-2.5 border border-white/10 flex items-center justify-between gap-2">
+                  <div className="overflow-hidden">
+                    <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-sans">
+                      URL do Supabase
+                    </span>
+                    <span className="text-emerald-300 truncate block font-semibold">{SUPABASE_DIRECT_URL}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(SUPABASE_DIRECT_URL, 'supa-url')}
+                    className="px-2 py-1 bg-white/10 hover:bg-white/20 rounded-lg text-white text-[10px] font-sans font-bold shrink-0 transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    {copiedKey === 'supa-url' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedKey === 'supa-url' ? 'Copiado' : 'Copiar'}</span>
+                  </button>
+                </div>
+
+                {/* Supabase Key */}
+                <div className="bg-black/40 rounded-xl p-2.5 border border-white/10 flex items-center justify-between gap-2">
+                  <div className="overflow-hidden">
+                    <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-sans">
+                      Chave Anon do Supabase
+                    </span>
+                    <span className="text-emerald-300 truncate block font-semibold">{SUPABASE_DIRECT_KEY}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(SUPABASE_DIRECT_KEY, 'supa-key')}
+                    className="px-2 py-1 bg-white/10 hover:bg-white/20 rounded-lg text-white text-[10px] font-sans font-bold shrink-0 transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    {copiedKey === 'supa-key' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedKey === 'supa-key' ? 'Copiado' : 'Copiar'}</span>
+                  </button>
+                </div>
+
+                {/* Nome da Tabela */}
+                <div className="bg-black/40 rounded-xl p-2.5 border border-white/10 flex items-center justify-between gap-2">
+                  <div className="overflow-hidden">
+                    <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-sans">
+                      Nome da Tabela
+                    </span>
+                    <span className="text-emerald-300 truncate block font-semibold">{SUPABASE_DIRECT_TABLE}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(SUPABASE_DIRECT_TABLE, 'supa-table')}
+                    className="px-2 py-1 bg-white/10 hover:bg-white/20 rounded-lg text-white text-[10px] font-sans font-bold shrink-0 transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    {copiedKey === 'supa-table' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedKey === 'supa-table' ? 'Copiado' : 'Copiar'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-3 pt-2.5 border-t border-white/10 flex items-center justify-between">
+              <span className="text-[10px] text-emerald-400 font-medium">
+                ✅ Banco já atualizado e permissões liberadas com HTTP 200/201.
+              </span>
+            </div>
+          </div>
+
+          {/* Opção 2: API Express / Webhook (URL Pública Netlify) */}
+          <div className="bg-white/5 hover:bg-white/10 transition-all rounded-2xl p-4 border border-white/10 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <ExternalLink className="w-4 h-4 text-blue-400" />
+                  <span className="text-xs font-black uppercase tracking-wider text-blue-400">
+                    Opção 2: API Express / Webhook
+                  </span>
+                </div>
+                <span className="text-[10px] font-extrabold bg-blue-500/30 text-blue-300 px-2 py-0.5 rounded-full border border-blue-400/30">
+                  URL Pública Netlify
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300 mb-3 leading-relaxed">
+                Se mantiver o botão <strong>[ API Express / Webhook ]</strong> selecionado, substitua a URL anterior por esta URL oficial do seu domínio:
+              </p>
+
+              <div className="space-y-2 text-[11px] font-mono">
+                {/* Netlify URL */}
+                <div className="bg-black/40 rounded-xl p-2.5 border border-white/10 flex items-center justify-between gap-2">
+                  <div className="overflow-hidden">
+                    <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-sans">
+                      Link da API (Substituir o .run.app)
+                    </span>
+                    <span className="text-blue-300 truncate block font-semibold">
+                      https://gestaofinanceirafacil.netlify.app/api/integrations/massoterapia
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      copyToClipboard(
+                        'https://gestaofinanceirafacil.netlify.app/api/integrations/massoterapia',
+                        'net-url'
+                      )
+                    }
+                    className="px-2 py-1 bg-white/10 hover:bg-white/20 rounded-lg text-white text-[10px] font-sans font-bold shrink-0 transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    {copiedKey === 'net-url' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedKey === 'net-url' ? 'Copiado' : 'Copiar'}</span>
+                  </button>
+                </div>
+
+                {/* Usuário */}
+                <div className="bg-black/40 rounded-xl p-2.5 border border-white/10 flex items-center justify-between gap-2">
+                  <div className="overflow-hidden">
+                    <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-sans">
+                      Usuário / E-mail
+                    </span>
+                    <span className="text-slate-200 truncate block font-semibold">{integrationEmail}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(integrationEmail, 'net-email')}
+                    className="px-2 py-1 bg-white/10 hover:bg-white/20 rounded-lg text-white text-[10px] font-sans font-bold shrink-0 transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    {copiedKey === 'net-email' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedKey === 'net-email' ? 'Copiado' : 'Copiar'}</span>
+                  </button>
+                </div>
+
+                {/* Senha */}
+                <div className="bg-black/40 rounded-xl p-2.5 border border-white/10 flex items-center justify-between gap-2">
+                  <div className="overflow-hidden">
+                    <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-sans">
+                      Senha de Acesso
+                    </span>
+                    <span className="text-slate-200 truncate block font-semibold">{integrationPassword}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(integrationPassword, 'net-pass')}
+                    className="px-2 py-1 bg-white/10 hover:bg-white/20 rounded-lg text-white text-[10px] font-sans font-bold shrink-0 transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    {copiedKey === 'net-pass' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedKey === 'net-pass' ? 'Copiado' : 'Copiar'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-3 pt-2.5 border-t border-white/10 flex items-center justify-between">
+              <span className="text-[10px] text-blue-300 font-medium">
+                🌐 Roteada através de Netlify Serverless Function com CORS total.
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
