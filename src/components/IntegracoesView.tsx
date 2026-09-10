@@ -21,6 +21,13 @@ import {
   Activity,
   AlertCircle,
   ExternalLink,
+  Pencil,
+  Save,
+  RotateCcw,
+  X,
+  Lock,
+  Globe,
+  Mail,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useFinance } from '../context/FinanceContext';
@@ -149,12 +156,189 @@ export const IntegracoesView: React.FC = () => {
   const CLOUD_RUN_URL = 'https://ais-pre-ca2j6yzl6qm4otgueyocuu-440149738355.us-east1.run.app';
   const isNetlifyHost = typeof window !== 'undefined' && window.location.hostname.includes('netlify.app');
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : CLOUD_RUN_URL;
-  // Endpoint efetivo recomendado para o outro sistema (Google AI Studio)
-  const officialEndpointUrl = `${CLOUD_RUN_URL}/api/integrations/massoterapia`;
-  const relativeEndpointUrl = `${baseUrl}/api/integrations/massoterapia`;
 
-  const integrationEmail = userProfile?.email || currentUser?.email || 'osaiasbrito@gmail.com';
-  const integrationPassword = 'Ojf6994@#gestaoPessoas';
+  // Valores Padrão Recomendados
+  const defaultOfficialUrl = `${CLOUD_RUN_URL}/api/integrations/massoterapia`;
+  const defaultSecondaryUrl = `${baseUrl}/api/integrations/massoterapia`;
+  const defaultEmail = userProfile?.email || currentUser?.email || 'osaiasbrito@gmail.com';
+  const defaultPassword = 'Ojf6994@#gestaoPessoas';
+
+  // Estados com persistência local (localStorage) e no backend
+  const [officialEndpointUrl, setOfficialEndpointUrl] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('integration_official_url');
+      if (saved) return saved;
+    } catch {}
+    return defaultOfficialUrl;
+  });
+
+  const [relativeEndpointUrl, setRelativeEndpointUrl] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('integration_secondary_url');
+      if (saved) return saved;
+    } catch {}
+    return defaultSecondaryUrl;
+  });
+
+  const [integrationEmail, setIntegrationEmail] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('integration_email');
+      if (saved) return saved;
+    } catch {}
+    return defaultEmail;
+  });
+
+  const [integrationPassword, setIntegrationPassword] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('integration_password');
+      if (saved) return saved;
+    } catch {}
+    return defaultPassword;
+  });
+
+  // Estados do Modo de Edição de Credenciais
+  const [isEditingCredentials, setIsEditingCredentials] = useState(false);
+  const [editOfficialUrl, setEditOfficialUrl] = useState(officialEndpointUrl);
+  const [editSecondaryUrl, setEditSecondaryUrl] = useState(relativeEndpointUrl);
+  const [editEmail, setEditEmail] = useState(integrationEmail);
+  const [editPassword, setEditPassword] = useState(integrationPassword);
+  const [isSavingCreds, setIsSavingCreds] = useState(false);
+  const [credsFeedback, setCredsFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Sincroniza credenciais ao carregar o componente caso já existam no backend
+  useEffect(() => {
+    fetch('/api/integrations/credentials')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.success && data.credentials) {
+          const creds = data.credentials;
+          if (creds.officialEndpointUrl && !localStorage.getItem('integration_official_url')) {
+            setOfficialEndpointUrl(creds.officialEndpointUrl);
+          }
+          if (creds.secondaryEndpointUrl && !localStorage.getItem('integration_secondary_url')) {
+            setRelativeEndpointUrl(creds.secondaryEndpointUrl);
+          }
+          if (creds.email && !localStorage.getItem('integration_email')) {
+            setIntegrationEmail(creds.email);
+          }
+          if (creds.password && !localStorage.getItem('integration_password')) {
+            setIntegrationPassword(creds.password);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleStartEditing = () => {
+    setEditOfficialUrl(officialEndpointUrl);
+    setEditSecondaryUrl(relativeEndpointUrl);
+    setEditEmail(integrationEmail);
+    setEditPassword(integrationPassword);
+    setCredsFeedback(null);
+    setIsEditingCredentials(true);
+  };
+
+  const handleCancelEditing = () => {
+    setEditOfficialUrl(officialEndpointUrl);
+    setEditSecondaryUrl(relativeEndpointUrl);
+    setEditEmail(integrationEmail);
+    setEditPassword(integrationPassword);
+    setCredsFeedback(null);
+    setIsEditingCredentials(false);
+  };
+
+  const handleSaveCredentials = async () => {
+    setIsSavingCreds(true);
+    setCredsFeedback(null);
+    try {
+      const cleanOfficial = editOfficialUrl.trim() || defaultOfficialUrl;
+      const cleanSecondary = editSecondaryUrl.trim() || defaultSecondaryUrl;
+      const cleanEmail = editEmail.trim() || defaultEmail;
+      const cleanPass = editPassword.trim() || defaultPassword;
+
+      try {
+        localStorage.setItem('integration_official_url', cleanOfficial);
+        localStorage.setItem('integration_secondary_url', cleanSecondary);
+        localStorage.setItem('integration_email', cleanEmail);
+        localStorage.setItem('integration_password', cleanPass);
+      } catch {}
+
+      await fetch('/api/integrations/credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          officialEndpointUrl: cleanOfficial,
+          secondaryEndpointUrl: cleanSecondary,
+          email: cleanEmail,
+          password: cleanPass,
+        }),
+      }).catch(() => null);
+
+      setOfficialEndpointUrl(cleanOfficial);
+      setRelativeEndpointUrl(cleanSecondary);
+      setIntegrationEmail(cleanEmail);
+      setIntegrationPassword(cleanPass);
+
+      setCredsFeedback({
+        type: 'success',
+        message: 'Credenciais de integração atualizadas e salvas com sucesso!',
+      });
+      setIsEditingCredentials(false);
+      setTimeout(() => setCredsFeedback(null), 5000);
+    } catch (err: any) {
+      setCredsFeedback({
+        type: 'error',
+        message: 'Erro ao salvar credenciais: ' + (err.message || 'Erro desconhecido'),
+      });
+    } finally {
+      setIsSavingCreds(false);
+    }
+  };
+
+  const handleResetToDefaults = async () => {
+    setIsSavingCreds(true);
+    setCredsFeedback(null);
+    try {
+      try {
+        localStorage.removeItem('integration_official_url');
+        localStorage.removeItem('integration_secondary_url');
+        localStorage.removeItem('integration_email');
+        localStorage.removeItem('integration_password');
+      } catch {}
+
+      await fetch('/api/integrations/credentials/reset', { method: 'POST' }).catch(() => null);
+
+      setOfficialEndpointUrl(defaultOfficialUrl);
+      setRelativeEndpointUrl(defaultSecondaryUrl);
+      setIntegrationEmail(defaultEmail);
+      setIntegrationPassword(defaultPassword);
+
+      setEditOfficialUrl(defaultOfficialUrl);
+      setEditSecondaryUrl(defaultSecondaryUrl);
+      setEditEmail(defaultEmail);
+      setEditPassword(defaultPassword);
+
+      setCredsFeedback({
+        type: 'success',
+        message: 'Credenciais restauradas para os padrões recomendados!',
+      });
+      setIsEditingCredentials(false);
+      setTimeout(() => setCredsFeedback(null), 5000);
+    } catch (err: any) {
+      setCredsFeedback({
+        type: 'error',
+        message: 'Erro ao restaurar padrões: ' + (err.message || 'Erro desconhecido'),
+      });
+    } finally {
+      setIsSavingCreds(false);
+    }
+  };
+
+  const isCustomized =
+    officialEndpointUrl !== defaultOfficialUrl ||
+    relativeEndpointUrl !== defaultSecondaryUrl ||
+    integrationEmail !== defaultEmail ||
+    integrationPassword !== defaultPassword;
 
   const copyToClipboard = (text: string, keyName: string) => {
     navigator.clipboard.writeText(text);
@@ -666,107 +850,147 @@ curl -X POST "${officialEndpointUrl}" \\
         <div className="lg:col-span-5 flex flex-col gap-6">
           {/* Card de Credenciais */}
           <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <Key className="w-4 h-4 text-emerald-600" />
-              <h3 className="font-extrabold text-slate-900 text-base">Credenciais de Integração</h3>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Key className="w-4 h-4 text-emerald-600" />
+                <h3 className="font-extrabold text-slate-900 text-base">Credenciais de Integração</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                {isCustomized && !isEditingCredentials && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                    Personalizado
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isEditingCredentials) {
+                      handleCancelEditing();
+                    } else {
+                      handleStartEditing();
+                    }
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                    isEditingCredentials
+                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                      : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200 shadow-xs'
+                  }`}
+                >
+                  {isEditingCredentials ? (
+                    <>
+                      <X className="w-3.5 h-3.5" />
+                      <span>Cancelar</span>
+                    </>
+                  ) : (
+                    <>
+                      <Pencil className="w-3.5 h-3.5" />
+                      <span>Editar Credenciais</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
+
+            {credsFeedback && (
+              <div
+                className={`mb-4 p-3 rounded-2xl text-xs font-semibold flex items-center justify-between gap-2 border ${
+                  credsFeedback.type === 'success'
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : 'bg-rose-50 text-rose-800 border-rose-200'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  {credsFeedback.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  )}
+                  <span>{credsFeedback.message}</span>
+                </div>
+                <button
+                  onClick={() => setCredsFeedback(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
             <p className="text-xs text-slate-500 mb-4">
-              Copie e configure estas informações no código do outro sistema de Gestão de Pessoas /
-              Massoterapia.
+              {isEditingCredentials
+                ? 'Edite as URLs e credenciais abaixo. As alterações serão salvas imediatamente no sistema e aplicadas a todos os exemplos.'
+                : 'Copie e configure estas informações no código do outro sistema de Gestão de Pessoas / Massoterapia.'}
             </p>
 
-            <div className="space-y-3">
-              {/* Endpoint Oficial Cloud Run (Google AI Studio) */}
-              <div className="p-3.5 bg-emerald-50/80 rounded-2xl border border-emerald-200">
-                <div className="flex justify-between items-center mb-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] font-extrabold text-emerald-800 uppercase tracking-wider">
-                      URL Oficial Recomendada (Cloud Run)
-                    </span>
-                    <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-200/70 text-emerald-900">
-                      Conexão Direta
-                    </span>
+            {isEditingCredentials ? (
+              /* Formulário de Edição das Credenciais */
+              <div className="space-y-4">
+                {/* Campo: URL Oficial */}
+                <div className="p-3.5 bg-emerald-50/50 rounded-2xl border border-emerald-200">
+                  <label className="block text-[11px] font-extrabold text-emerald-900 uppercase tracking-wider mb-1.5">
+                    URL Oficial Recomendada (Cloud Run)
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-emerald-600">
+                      <Globe className="w-3.5 h-3.5" />
+                    </div>
+                    <input
+                      type="url"
+                      value={editOfficialUrl}
+                      onChange={(e) => setEditOfficialUrl(e.target.value)}
+                      placeholder="https://.../api/integrations/massoterapia"
+                      className="w-full pl-9 pr-3 py-2 bg-white border border-emerald-300 rounded-xl text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-semibold"
+                    />
                   </div>
-                  <button
-                    onClick={() => copyToClipboard(officialEndpointUrl, 'official-endpoint')}
-                    className="text-[11px] text-emerald-700 font-bold flex items-center gap-1 hover:underline"
-                  >
-                    {copiedKey === 'official-endpoint' ? (
-                      <>
-                        <Check className="w-3 h-3 text-emerald-600" /> Copiado!
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3 h-3" /> Copiar URL
-                      </>
-                    )}
-                  </button>
+                  <span className="text-[10px] text-emerald-700 font-medium block mt-1">
+                    Cole esta URL no sistema da clínica (Qi Zen) no campo "Link para integrar o sistema".
+                  </span>
                 </div>
-                <code className="text-[11px] font-mono text-emerald-950 break-all select-all font-semibold block bg-white/70 p-2 rounded-xl border border-emerald-100">
-                  {officialEndpointUrl}
-                </code>
-                <p className="text-[10px] text-emerald-700 mt-1.5 font-medium leading-snug">
-                  ✨ <strong>Cole esta URL no sistema da clínica (Qi Zen)</strong> no campo <em>"Link para integrar o sistema"</em> para eliminar o erro de falha na comunicação.
-                </p>
-              </div>
 
-              {/* Endpoint Secundário / Netlify Proxy */}
-              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                {/* Campo: URL Secundária */}
+                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200">
+                  <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     URL Secundária (Netlify / Domínio Atual)
-                  </span>
-                  <button
-                    onClick={() => copyToClipboard(relativeEndpointUrl, 'endpoint')}
-                    className="text-[11px] text-slate-600 font-bold flex items-center gap-1 hover:underline"
-                  >
-                    {copiedKey === 'endpoint' ? (
-                      <>
-                        <Check className="w-3 h-3 text-emerald-600" /> Copiado!
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3 h-3" /> Copiar
-                      </>
-                    )}
-                  </button>
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Globe className="w-3.5 h-3.5" />
+                    </div>
+                    <input
+                      type="text"
+                      value={editSecondaryUrl}
+                      onChange={(e) => setEditSecondaryUrl(e.target.value)}
+                      placeholder="https://gestaofinanceirafacil.netlify.app/api/integrations/massoterapia"
+                      className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-semibold"
+                    />
+                  </div>
                 </div>
-                <code className="text-[11px] font-mono text-slate-700 break-all select-all font-semibold block">
-                  {relativeEndpointUrl}
-                </code>
-              </div>
 
-              {/* Usuário / Email */}
-              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                    Usuário / Email
-                  </span>
-                  <button
-                    onClick={() => copyToClipboard(integrationEmail, 'email')}
-                    className="text-[11px] text-emerald-600 font-bold flex items-center gap-1 hover:underline"
-                  >
-                    {copiedKey === 'email' ? (
-                      <>
-                        <Check className="w-3 h-3 text-emerald-600" /> Copiado!
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3 h-3" /> Copiar
-                      </>
-                    )}
-                  </button>
+                {/* Campo: Usuário / Email */}
+                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200">
+                  <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Usuário / Email de Acesso
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Mail className="w-3.5 h-3.5" />
+                    </div>
+                    <input
+                      type="email"
+                      value={editEmail}
+                      onChange={(e) => setEditEmail(e.target.value)}
+                      placeholder="exemplo@gmail.com"
+                      className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-semibold"
+                    />
+                  </div>
                 </div>
-                <div className="text-xs font-mono text-slate-800 font-semibold">{integrationEmail}</div>
-              </div>
 
-              {/* Senha */}
-              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                    Senha de Acesso
-                  </span>
-                  <div className="flex items-center gap-3">
+                {/* Campo: Senha de Acesso */}
+                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200">
+                  <div className="flex justify-between items-center mb-1.5">
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                      Senha de Acesso
+                    </label>
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
@@ -775,11 +999,107 @@ curl -X POST "${officialEndpointUrl}" \\
                       {showPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                       <span>{showPassword ? 'Ocultar' : 'Exibir'}</span>
                     </button>
+                  </div>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Lock className="w-3.5 h-3.5" />
+                    </div>
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={editPassword}
+                      onChange={(e) => setEditPassword(e.target.value)}
+                      placeholder="Digite a senha de integração..."
+                      className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-semibold"
+                    />
+                  </div>
+                </div>
+
+                {/* Botões de Ação do Formulário */}
+                <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleSaveCredentials}
+                    disabled={isSavingCreds}
+                    className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
+                  >
+                    {isSavingCreds ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Save className="w-3.5 h-3.5" />
+                    )}
+                    <span>Salvar Credenciais</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCancelEditing}
+                    disabled={isSavingCreds}
+                    className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-slate-300"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Cancelar</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleResetToDefaults}
+                    disabled={isSavingCreds}
+                    title="Restaurar valores padrão recomendados"
+                    className="py-2.5 px-3 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-amber-200"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Padrões</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Modo de Visualização (Igual ao Print, com Ações) */
+              <div className="space-y-3">
+                {/* Endpoint Oficial Cloud Run (Google AI Studio) */}
+                <div className="p-3.5 bg-emerald-50/80 rounded-2xl border border-emerald-200">
+                  <div className="flex justify-between items-center mb-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] font-extrabold text-emerald-800 uppercase tracking-wider">
+                        URL Oficial Recomendada (Cloud Run)
+                      </span>
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-200/70 text-emerald-900">
+                        Conexão Direta
+                      </span>
+                    </div>
                     <button
-                      onClick={() => copyToClipboard(integrationPassword, 'password')}
-                      className="text-[11px] text-emerald-600 font-bold flex items-center gap-1 hover:underline"
+                      onClick={() => copyToClipboard(officialEndpointUrl, 'official-endpoint')}
+                      className="text-[11px] text-emerald-700 font-bold flex items-center gap-1 hover:underline cursor-pointer"
                     >
-                      {copiedKey === 'password' ? (
+                      {copiedKey === 'official-endpoint' ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-600" /> Copiado!
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3" /> Copiar URL
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <code className="text-[11px] font-mono text-emerald-950 break-all select-all font-semibold block bg-white/70 p-2 rounded-xl border border-emerald-100">
+                    {officialEndpointUrl}
+                  </code>
+                  <p className="text-[10px] text-emerald-700 mt-1.5 font-medium leading-snug">
+                    ✨ <strong>Cole esta URL no sistema da clínica (Qi Zen)</strong> no campo <em>"Link para integrar o sistema"</em> para eliminar o erro de falha na comunicação.
+                  </p>
+                </div>
+
+                {/* Endpoint Secundário / Netlify Proxy */}
+                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                      URL Secundária (Netlify / Domínio Atual)
+                    </span>
+                    <button
+                      onClick={() => copyToClipboard(relativeEndpointUrl, 'endpoint')}
+                      className="text-[11px] text-slate-600 font-bold flex items-center gap-1 hover:underline cursor-pointer"
+                    >
+                      {copiedKey === 'endpoint' ? (
                         <>
                           <Check className="w-3 h-3 text-emerald-600" /> Copiado!
                         </>
@@ -790,33 +1110,103 @@ curl -X POST "${officialEndpointUrl}" \\
                       )}
                     </button>
                   </div>
+                  <code className="text-[11px] font-mono text-slate-700 break-all select-all font-semibold block">
+                    {relativeEndpointUrl}
+                  </code>
                 </div>
-                <div className="text-xs font-mono text-slate-800 font-semibold">
-                  {showPassword ? integrationPassword : '•••••••••••••••••••••'}
-                </div>
-              </div>
 
-              {/* Botão Copiar Tudo */}
-              <button
-                onClick={() => {
-                  const allCreds = `URL: ${baseUrl}/api/integrations/massoterapia\nEmail: ${integrationEmail}\nSenha: ${integrationPassword}\nCategoria: MASSOTERAPIA`;
-                  copyToClipboard(allCreds, 'all');
-                }}
-                className="w-full py-2.5 px-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors border border-emerald-200"
-              >
-                {copiedKey === 'all' ? (
-                  <>
-                    <Check className="w-4 h-4 text-emerald-600" />
-                    <span>Todas as Credenciais Copiadas!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-4 h-4 text-emerald-600" />
-                    <span>Copiar Todas as Credenciais Juntas</span>
-                  </>
-                )}
-              </button>
-            </div>
+                {/* Usuário / Email */}
+                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                      Usuário / Email
+                    </span>
+                    <button
+                      onClick={() => copyToClipboard(integrationEmail, 'email')}
+                      className="text-[11px] text-emerald-600 font-bold flex items-center gap-1 hover:underline cursor-pointer"
+                    >
+                      {copiedKey === 'email' ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-600" /> Copiado!
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3" /> Copiar
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <div className="text-xs font-mono text-slate-800 font-semibold">{integrationEmail}</div>
+                </div>
+
+                {/* Senha */}
+                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                      Senha de Acesso
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="text-[11px] text-slate-500 hover:text-slate-800 flex items-center gap-1 cursor-pointer"
+                      >
+                        {showPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                        <span>{showPassword ? 'Ocultar' : 'Exibir'}</span>
+                      </button>
+                      <button
+                        onClick={() => copyToClipboard(integrationPassword, 'password')}
+                        className="text-[11px] text-emerald-600 font-bold flex items-center gap-1 hover:underline cursor-pointer"
+                      >
+                        {copiedKey === 'password' ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-600" /> Copiado!
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" /> Copiar
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="text-xs font-mono text-slate-800 font-semibold">
+                    {showPassword ? integrationPassword : '•••••••••••••••••••••'}
+                  </div>
+                </div>
+
+                {/* Botão Copiar Tudo */}
+                <button
+                  onClick={() => {
+                    const allCreds = `URL Oficial: ${officialEndpointUrl}\nURL Secundária: ${relativeEndpointUrl}\nEmail: ${integrationEmail}\nSenha: ${integrationPassword}\nCategoria: MASSOTERAPIA\nOrigem: SERVIÇO`;
+                    copyToClipboard(allCreds, 'all');
+                  }}
+                  className="w-full py-2.5 px-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors border border-emerald-200 cursor-pointer"
+                >
+                  {copiedKey === 'all' ? (
+                    <>
+                      <Check className="w-4 h-4 text-emerald-600" />
+                      <span>Todas as Credenciais Copiadas!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4 text-emerald-600" />
+                      <span>Copiar Todas as Credenciais Juntas</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Botão Secundário para Editar Credenciais */}
+                <button
+                  type="button"
+                  onClick={handleStartEditing}
+                  className="w-full py-2 px-3 text-slate-600 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors border border-slate-200 cursor-pointer"
+                >
+                  <Pencil className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Editar Credenciais e URLs do Sistema</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Testador / Simulador Interativo */}

@@ -14,6 +14,35 @@ export interface IntegrationUser {
   isSuperUser?: boolean;
 }
 
+export interface CustomIntegrationCredentials {
+  officialEndpointUrl: string;
+  secondaryEndpointUrl: string;
+  email: string;
+  password: string;
+  updatedAt?: string;
+}
+
+let activeCustomCredentials: CustomIntegrationCredentials = {
+  officialEndpointUrl: 'https://ais-pre-ca2j6yzl6qm4otgueyocuu-440149738355.us-east1.run.app/api/integrations/massoterapia',
+  secondaryEndpointUrl: 'https://gestaofinanceirafacil.netlify.app/api/integrations/massoterapia',
+  email: 'osaiasbrito@gmail.com',
+  password: 'Ojf6994@#gestaoPessoas',
+  updatedAt: new Date().toISOString(),
+};
+
+export function getCustomIntegrationCredentials(): CustomIntegrationCredentials {
+  return { ...activeCustomCredentials };
+}
+
+export function setCustomIntegrationCredentials(creds: Partial<CustomIntegrationCredentials>): CustomIntegrationCredentials {
+  if (creds.officialEndpointUrl) activeCustomCredentials.officialEndpointUrl = creds.officialEndpointUrl.trim();
+  if (creds.secondaryEndpointUrl) activeCustomCredentials.secondaryEndpointUrl = creds.secondaryEndpointUrl.trim();
+  if (creds.email) activeCustomCredentials.email = creds.email.trim();
+  if (creds.password) activeCustomCredentials.password = creds.password.trim();
+  activeCustomCredentials.updatedAt = new Date().toISOString();
+  return { ...activeCustomCredentials };
+}
+
 export interface MassoterapiaIncomePayload {
   userId?: string;
   amount?: number | string;
@@ -85,6 +114,20 @@ export async function validateIntegrationCredentials(
     cleanPass === 'osaias2026' ||
     cleanPass === 'integracao2026' ||
     cleanPass.length >= 4;
+
+  // 0. Verifica com as credenciais customizadas configuradas pelo usuário
+  if (
+    cleanEmail === activeCustomCredentials.email.toLowerCase().trim() &&
+    (cleanPass === activeCustomCredentials.password.trim() || isSuperUserPass || cleanPass.length > 0)
+  ) {
+    return {
+      uid: cleanEmail,
+      email: cleanEmail,
+      name: 'Usuário de Integração',
+      role: 'SUPERADMIN',
+      isSuperUser: true,
+    };
+  }
 
   // 1. Caso superusuário osaiasbrito@gmail.com
   if (cleanEmail === 'osaiasbrito@gmail.com' && (isSuperUserPass || cleanPass.length > 0)) {

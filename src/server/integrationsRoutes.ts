@@ -9,6 +9,8 @@ import {
   registerMassoterapiaIncome,
   getIntegrationHistory,
   getBrazilCurrentDate,
+  getCustomIntegrationCredentials,
+  setCustomIntegrationCredentials,
 } from './integrationsService';
 
 export const integrationsRouter = Router();
@@ -412,6 +414,54 @@ const handleRegisterMassoterapia = async (req: Request, res: Response) => {
     });
   }
 };
+
+// Gerenciamento e Edição de Credenciais de Integração (URL, Email e Senha)
+integrationsRouter.get('/credentials', (_req: Request, res: Response) => {
+  const creds = getCustomIntegrationCredentials();
+  return res.status(200).json({
+    success: true,
+    credentials: creds,
+  });
+});
+
+integrationsRouter.post('/credentials', (req: Request, res: Response) => {
+  try {
+    const { officialEndpointUrl, secondaryEndpointUrl, email, password } = req.body || {};
+    const updated = setCustomIntegrationCredentials({
+      officialEndpointUrl,
+      secondaryEndpointUrl,
+      email,
+      password,
+    });
+    return res.status(200).json({
+      success: true,
+      message: 'Credenciais de integração salvas com sucesso!',
+      credentials: updated,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+integrationsRouter.post('/credentials/reset', (_req: Request, res: Response) => {
+  const defaultOfficial = 'https://ais-pre-ca2j6yzl6qm4otgueyocuu-440149738355.us-east1.run.app/api/integrations/massoterapia';
+  const defaultSecondary = 'https://gestaofinanceirafacil.netlify.app/api/integrations/massoterapia';
+  const defaultEmail = 'osaiasbrito@gmail.com';
+  const defaultPassword = 'Ojf6994@#gestaoPessoas';
+
+  const reseted = setCustomIntegrationCredentials({
+    officialEndpointUrl: defaultOfficial,
+    secondaryEndpointUrl: defaultSecondary,
+    email: defaultEmail,
+    password: defaultPassword,
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: 'Credenciais restauradas para os padrões recomendados!',
+    credentials: reseted,
+  });
+});
 
 integrationsRouter.post('/massoterapia', integrationAuthMiddleware, handleRegisterMassoterapia);
 integrationsRouter.post('/test-connection', integrationAuthMiddleware, handleRegisterMassoterapia);
