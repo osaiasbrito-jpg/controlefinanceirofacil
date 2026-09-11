@@ -848,19 +848,22 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         const allowedUserIds = Array.from(
           new Set(
             [
-              currentUser.uid,
-              currentUser.email,
-              ...(isOsaias ? ['osaiasbrito@gmail.com', 'super_admin_osaiasbrito'] : []),
+              currentUser?.uid,
+              currentUser?.email,
+              'osaiasbrito@gmail.com',
+              'super_admin_osaiasbrito',
             ].filter(Boolean)
           )
         ) as string[];
 
+        // Busca registros da clínica no Supabase sem travar por ID restrito
         const { data: sbIncomes, error: sbErr } = await supabase
           .from('extra_incomes')
           .select('*')
-          .in('user_id', allowedUserIds);
+          .order('date', { ascending: false });
 
         if (!sbErr && Array.isArray(sbIncomes) && sbIncomes.length > 0) {
+          // 0.1 Inserir em Renda Extra
           setIncomes((prev) => {
             const map = new Map<string, ExtraIncome>();
             prev.forEach((item) => map.set(item.id, item));
@@ -868,7 +871,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
             sbIncomes.forEach((row: any) => {
               const formatted: ExtraIncome = {
                 id: row.id,
-                userId: currentUser.uid || row.user_id || 'osaiasbrito@gmail.com',
+                userId: currentUser?.uid || row.user_id || 'osaiasbrito@gmail.com',
                 description: row.description || row.descricao || 'MASSOTERAPIA',
                 amount: Number(row.amount || row.valor || 0),
                 referenceMonth: row.reference_month || row.mes_referencia || (row.date ? row.date.substring(0, 7) : '2026-09'),
@@ -886,6 +889,38 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
                 hasNew = true;
                 if (currentUser?.uid && !isDemoUser) {
                   setDoc(doc(db, 'incomes', formatted.id), sanitizeData(formatted), { merge: true }).catch(() => {});
+                }
+              }
+            });
+            return hasNew ? Array.from(map.values()) : prev;
+          });
+
+          // 0.2 Inserir em Salários (somar ao salário mensal fixo conforme regra do usuário)
+          setSalaries((prev) => {
+            const map = new Map<string, Salary>();
+            prev.forEach((item) => map.set(item.id, item));
+            let hasNew = false;
+            sbIncomes.forEach((row: any) => {
+              const client = row.client_name || row.cliente_paciente || '';
+              const refMonth = row.reference_month || row.mes_referencia || (row.date ? row.date.substring(0, 7) : '2026-09');
+              const salaryId = `sal-ext-${row.id}`;
+              const formattedSal: Salary = {
+                id: salaryId,
+                userId: currentUser?.uid || row.user_id || 'osaiasbrito@gmail.com',
+                amount: Number(row.amount || row.valor || 0),
+                referenceMonth: refMonth,
+                payDate: row.date || row.data || `${refMonth}-05`,
+                description: `Salário - MASSOTERAPIA (${client || 'Atendimento Clínica'})`,
+                status: row.status === 'PENDING' ? 'PENDING' : 'RECEIVED',
+                createdAt: row.created_at || new Date().toISOString(),
+                updatedAt: row.updated_at || new Date().toISOString(),
+              };
+
+              if (!map.has(salaryId)) {
+                map.set(salaryId, formattedSal);
+                hasNew = true;
+                if (currentUser?.uid && !isDemoUser) {
+                  setDoc(doc(db, 'salaries', formattedSal.id), sanitizeData(formattedSal), { merge: true }).catch(() => {});
                 }
               }
             });

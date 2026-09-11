@@ -15,29 +15,44 @@ export interface DbSyncPayload {
   settings?: any;
 }
 
-export const CLOUD_RUN_URL = 'https://ais-pre-ca2j6yzl6qm4otgueyocuu-440149738355.us-east1.run.app';
+export const CLOUD_RUN_URL = typeof window !== 'undefined' && !window.location.hostname.includes('netlify.app')
+  ? window.location.origin
+  : '';
 
 /**
  * Executa fetch resiliente:
  * Se o host atual for Netlify ou se a resposta for HTML (fallback SPA estático do Netlify),
- * redireciona automaticamente para o backend Express no Cloud Run.
+ * tenta caminhos relativos e URLs de serviço disponíveis de forma segura.
  */
 async function resilientFetch(path: string, options: RequestInit = {}): Promise<Response> {
-  const isNetlify = typeof window !== 'undefined' && window.location.hostname.includes('netlify.app');
-  const targetUrls = isNetlify
-    ? [`${CLOUD_RUN_URL}${path}`, path]
-    : [path, `${CLOUD_RUN_URL}${path}`];
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+  const targetUrls: string[] = [];
+
+  if (path.startsWith('http')) {
+    targetUrls.push(path);
+  } else {
+    targetUrls.push(path);
+    if (currentOrigin) {
+      targetUrls.push(`${currentOrigin}${path}`);
+    }
+    if (CLOUD_RUN_URL && CLOUD_RUN_URL !== currentOrigin) {
+      targetUrls.push(`${CLOUD_RUN_URL}${path}`);
+    }
+  }
 
   let lastError: any = null;
   for (const url of targetUrls) {
     try {
       const res = await fetch(url, options);
       const contentType = res.headers.get('content-type') || '';
-      // Se retornou HTML mas a requisição espera API/JSON, ignora e tenta o Cloud Run
-      if (contentType.includes('text/html') && url.startsWith('/')) {
+      // Se retornou HTML mas a requisição espera API/JSON (ex: fallback SPA no Netlify), ignora
+      if (contentType.includes('text/html') && (url.startsWith('/') || url.includes('netlify.app'))) {
         continue;
       }
-      return res;
+      if (res.ok || res.status < 500) {
+        return res;
+      }
+      lastError = new Error(`HTTP ${res.status}: ${res.statusText}`);
     } catch (err) {
       lastError = err;
     }
