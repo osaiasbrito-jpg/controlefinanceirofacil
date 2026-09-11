@@ -12,11 +12,6 @@ import {
   Sparkles,
   Search,
   X,
-  RefreshCw,
-  Cable,
-  ShieldCheck,
-  Activity,
-  AlertCircle,
 } from 'lucide-react';
 import { useFinance } from '../context/FinanceContext';
 import { ExtraIncome } from '../types';
@@ -38,121 +33,8 @@ export const IncomesView: React.FC<IncomesViewProps> = ({
     setSelectedMonth,
     toggleIncomeStatus,
     monthSummary,
-    refreshDataFromPostgres,
   } = useFinance();
   const [searchQuery, setSearchQuery] = useState('');
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
-
-  // Estados do Teste de Conexão em Ambos os Sistemas
-  const [isTestingConn, setIsTestingConn] = useState(false);
-  const [testConnResult, setTestConnResult] = useState<{
-    success: boolean;
-    clinicStatus?: number;
-    clinicLatency?: number;
-    message: string;
-    details?: string;
-    timestamp: string;
-  } | null>(null);
-
-  const handleTestConnection = async () => {
-    setIsTestingConn(true);
-    try {
-      // 1. Testa conectividade com o Sistema de Clínicas (gestaopacientesterapias.vercel.app)
-      const clinicRes = await fetch('/api/integrations/test-clinic').catch(() => null);
-      let clinicData: any = null;
-      if (clinicRes && clinicRes.ok) {
-        clinicData = await clinicRes.json().catch(() => null);
-      }
-
-      // 2. Testa o endpoint interno de recepção financeira
-      const finRes = await fetch('/api/financial/test-connection').catch(() => null);
-      let finData: any = null;
-      if (finRes && finRes.ok) {
-        finData = await finRes.json().catch(() => null);
-      }
-
-      // 3. Sincroniza atendimentos pendentes da clínica
-      await fetch('/api/integrations/sync-clinic', { method: 'POST' }).catch(() => null);
-
-      // 4. Recarrega o estado do PostgreSQL imediatamente
-      if (refreshDataFromPostgres) {
-        await refreshDataFromPostgres();
-      }
-
-      const clinicOk = clinicData?.success ?? true;
-      const finOk = finData?.success ?? true;
-
-      setTestConnResult({
-        success: clinicOk && finOk,
-        clinicStatus: clinicData?.status || 200,
-        clinicLatency: clinicData?.latencyMs || 88,
-        message: `Conexão testada e validada em AMBOS os sistemas com sucesso (HTTP 200)!`,
-        details: `Sistema de Clínicas (Online - ${clinicData?.latencyMs || 88}ms) ⇄ Sistema Financeiro (/api/integrations/massoterapia - Online)`,
-        timestamp: new Date().toLocaleTimeString('pt-BR'),
-      });
-    } catch (err: any) {
-      setTestConnResult({
-        success: false,
-        message: 'Falha ao testar conexão: ' + (err.message || 'Erro de rede'),
-        timestamp: new Date().toLocaleTimeString('pt-BR'),
-      });
-    } finally {
-      setIsTestingConn(false);
-    }
-  };
-
-  const handleManualSync = async () => {
-    if (isSyncing) return;
-    setIsSyncing(true);
-    setSyncFeedback(null);
-    try {
-      // Garante que os registros da clínica existam no banco
-      await fetch('/api/integrations/sync-clinic', { method: 'POST' }).catch(() => null);
-      if (refreshDataFromPostgres) {
-        await refreshDataFromPostgres();
-      }
-      setSyncFeedback('Dados de Massoterapia sincronizados com sucesso!');
-      setTimeout(() => setSyncFeedback(null), 5000);
-    } catch {
-      setSyncFeedback('Erro ao sincronizar dados.');
-      setTimeout(() => setSyncFeedback(null), 4000);
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  // Detecta se existem atendimentos de massoterapia em outros meses (como Setembro de 2026)
-  const currentActiveMonth = '2026-09';
-  const otherMonthMassoterapiaIncomes = useMemo(() => {
-    if (selectedMonth === currentActiveMonth) return [];
-    return incomes.filter((i) => {
-      const m = i.referenceMonth || (i.date ? i.date.substring(0, 7) : '');
-      const isMasso =
-        i.origin === 'MASSOTERAPIA' ||
-        i.description?.toUpperCase().includes('MASSOTERAPIA') ||
-        i.description?.toUpperCase().includes('MASSAGEM') ||
-        i.notes?.toUpperCase().includes('MASSOTERAPIA');
-      return isMasso && m === currentActiveMonth;
-    });
-  }, [incomes, selectedMonth]);
-
-  const otherMonthMassoterapiaTotal = useMemo(() => {
-    return otherMonthMassoterapiaIncomes.reduce((acc, curr) => acc + (curr.amount || 0), 0);
-  }, [otherMonthMassoterapiaIncomes]);
-
-  const isMassoterapia = (inc: ExtraIncome) => {
-    const org = ((inc.origin || (inc as any).source) || '').toUpperCase();
-    const desc = (inc.description || '').toUpperCase();
-    const notes = (inc.notes || '').toUpperCase();
-    return (
-      desc.includes('MASSOTERAPIA') ||
-      desc.includes('MASSAGEM') ||
-      org.includes('MASSOTERAPIA') ||
-      notes.includes('MASSOTERAPIA') ||
-      (desc.includes('MASSOTERAPIA') && org.includes('SERVIÇO'))
-    );
-  };
 
   const monthIncomes = useMemo(() => {
     let list = [...effectiveIncomesForMonth];
@@ -212,26 +94,6 @@ export const IncomesView: React.FC<IncomesViewProps> = ({
 
         <div className="flex items-center gap-2.5 flex-wrap">
           <button
-            onClick={handleTestConnection}
-            disabled={isTestingConn}
-            className="px-3.5 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50"
-            title="Testar comunicação em tempo real com o Sistema de Clínicas (gestaopacientesterapias.vercel.app)"
-          >
-            <Cable className={`w-3.5 h-3.5 ${isTestingConn ? 'animate-spin text-blue-600' : 'text-blue-600'}`} />
-            <span>{isTestingConn ? 'Testando Conexão...' : 'Testar Conexão com Clínicas'}</span>
-          </button>
-
-          <button
-            onClick={handleManualSync}
-            disabled={isSyncing}
-            className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50"
-            title="Sincronizar lançamentos do Sistema de Gestão de Pacientes (Massoterapia)"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-emerald-600' : 'text-slate-500'}`} />
-            <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar Massoterapia'}</span>
-          </button>
-
-          <button
             onClick={() => onOpenIncomeModal()}
             className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-200 flex items-center gap-2 transition-all cursor-pointer"
           >
@@ -240,86 +102,6 @@ export const IncomesView: React.FC<IncomesViewProps> = ({
           </button>
         </div>
       </div>
-
-      {/* Card de Diagnóstico do Teste de Conexão em Ambos os Sistemas */}
-      {testConnResult && (
-        <div
-          className={`rounded-3xl p-5 border shadow-xs animate-in fade-in slide-in-from-top-2 duration-300 ${
-            testConnResult.success
-              ? 'bg-emerald-50/90 border-emerald-200 text-emerald-950'
-              : 'bg-amber-50/90 border-amber-200 text-amber-950'
-          }`}
-        >
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="flex items-start sm:items-center gap-3">
-              <div
-                className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 font-bold ${
-                  testConnResult.success ? 'bg-emerald-600 text-white' : 'bg-amber-600 text-white'
-                }`}
-              >
-                {testConnResult.success ? <ShieldCheck className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h4 className="text-sm font-extrabold">{testConnResult.message}</h4>
-                  <span className="text-[11px] px-2 py-0.5 rounded-full font-bold bg-white/80 border border-slate-200 text-slate-700">
-                    HTTP {testConnResult.clinicStatus || 200}
-                  </span>
-                  {testConnResult.clinicLatency && (
-                    <span className="text-[11px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800">
-                      {testConnResult.clinicLatency}ms
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-slate-600 mt-0.5">{testConnResult.details}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 self-end sm:self-center">
-              <span className="text-[10px] text-slate-400">Verificado às {testConnResult.timestamp}</span>
-              <button
-                onClick={() => setTestConnResult(null)}
-                className="p-1 hover:bg-slate-200/50 rounded-lg text-slate-400 hover:text-slate-600 transition-colors"
-                title="Fechar relatório"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Sync feedback banner */}
-      {syncFeedback && (
-        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 animate-in fade-in duration-200">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-          <span>{syncFeedback}</span>
-        </div>
-      )}
-
-      {/* Alerta inteligente caso haja atendimentos de Massoterapia em outro mês */}
-      {otherMonthMassoterapiaIncomes.length > 0 && (
-        <div className="bg-emerald-50/90 border border-emerald-200/90 text-emerald-950 rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 font-bold">
-              <Sparkles className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-sm font-extrabold text-emerald-950">
-                {otherMonthMassoterapiaIncomes.length} Atendimento(s) Sincronizado(s) no Sistema de Massoterapia em {getMonthName(currentActiveMonth)}
-              </p>
-              <p className="text-xs text-emerald-800">
-                Você está visualizando <span className="font-bold">{getMonthName(selectedMonth)}</span>. O total sincronizado para {getMonthName(currentActiveMonth)} é de <span className="font-extrabold">{formatCurrency(otherMonthMassoterapiaTotal)}</span>.
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => setSelectedMonth(currentActiveMonth)}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors shrink-0 cursor-pointer flex items-center gap-1.5"
-          >
-            <span>Ir para {getMonthName(currentActiveMonth)}</span>
-          </button>
-        </div>
-      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -471,16 +253,9 @@ export const IncomesView: React.FC<IncomesViewProps> = ({
                             {formatDateBR(income.date)}
                           </span>
                         )}
-                        {isMassoterapia(income) ? (
-                          <span className="px-2 py-0.5 bg-teal-50 text-teal-800 border border-teal-200/90 rounded-md font-bold text-[9px] inline-flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-teal-500"></span>
-                            <span>SERVIÇO</span>
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md font-semibold text-[9px]">
-                            {income.origin || (income as any).source || 'Outros'}
-                          </span>
-                        )}
+                        <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md font-semibold text-[9px]">
+                          {income.origin || (income as any).source || 'Outros'}
+                        </span>
                       </div>
                     </div>
 
@@ -574,16 +349,9 @@ export const IncomesView: React.FC<IncomesViewProps> = ({
                         )}
                       </td>
                       <td className="text-slate-500 font-medium">
-                        {isMassoterapia(income) ? (
-                          <span className="px-2.5 py-1 bg-teal-50 text-teal-800 border border-teal-200/90 rounded-lg font-bold text-[10px] inline-flex items-center gap-1.5 shadow-2xs">
-                            <span className="w-1.5 h-1.5 rounded-full bg-teal-500"></span>
-                            <span>SERVIÇO</span>
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md font-semibold text-[10px]">
-                            {income.origin || (income as any).source || 'Outros'}
-                          </span>
-                        )}
+                        <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md font-semibold text-[10px]">
+                          {income.origin || (income as any).source || 'Outros'}
+                        </span>
                       </td>
                       <td className="text-center text-slate-500 font-mono">
                         {income.isRecurring ? (

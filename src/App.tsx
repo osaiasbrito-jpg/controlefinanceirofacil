@@ -13,7 +13,6 @@ import { CategoriesView } from './components/CategoriesView';
 import { ReportsView } from './components/ReportsView';
 import { BackupView } from './components/BackupView';
 import { SettingsView } from './components/SettingsView';
-import { IntegracoesView } from './components/IntegracoesView';
 import { SuperAdminView } from './components/SuperAdminView';
 import { LoginView } from './components/LoginView';
 import { BottomNav } from './components/BottomNav';
@@ -375,8 +374,6 @@ const MainLayout: React.FC = () => {
             )}
 
             {activeTab === 'relatorios' && <ReportsView />}
-
-            {activeTab === 'integracoes' && <IntegracoesView />}
 
             {activeTab === 'backup' && <BackupView onOpenImportExcel={() => setImportExcelModalOpen(true)} />}
 

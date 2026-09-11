@@ -1,7 +1,7 @@
 import { Category } from '../types';
 
 export const DEFAULT_CATEGORIES: Omit<Category, 'id'>[] = [
-  { userId: 'system', name: 'MASSOTERAPIA', icon: 'Sparkles', color: '#10B981', isDefault: true },
+  { userId: 'system', name: 'Serviços', icon: 'Sparkles', color: '#10B981', isDefault: true },
   { userId: 'system', name: 'Alimentação', icon: 'Utensils', color: '#10B981', isDefault: true },
   { userId: 'system', name: 'Moradia', icon: 'Home', color: '#3B82F6', isDefault: true },
   { userId: 'system', name: 'Energia', icon: 'Zap', color: '#F59E0B', isDefault: true },
@@ -25,8 +25,6 @@ export const DEFAULT_CATEGORIES: Omit<Category, 'id'>[] = [
 
 export const INCOME_ORIGINS = [
   'Salário',
-  'MASSOTERAPIA',
-  'Massoterapia',
   '1/3 de Férias',
   'Férias',
   '13º Salário',

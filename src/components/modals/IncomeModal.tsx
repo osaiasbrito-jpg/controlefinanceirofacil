@@ -24,7 +24,7 @@ export const IncomeModal: React.FC<IncomeModalProps> = ({
   const [amount, setAmount] = useState<number | string>('');
   const [date, setDate] = useState(getCurrentDate());
   const [referenceMonth, setReferenceMonth] = useState(selectedMonth || getCurrentMonth());
-  const [origin, setOrigin] = useState('MASSOTERAPIA');
+  const [origin, setOrigin] = useState('Serviço');
   const [status, setStatus] = useState<IncomeStatus>('RECEIVED');
   const [notes, setNotes] = useState('');
   const [alsoAddToSalary, setAlsoAddToSalary] = useState(true);
@@ -40,7 +40,7 @@ export const IncomeModal: React.FC<IncomeModalProps> = ({
       setAmount(incomeToEdit.amount);
       setDate(incomeToEdit.date || getCurrentDate());
       setReferenceMonth(incomeToEdit.referenceMonth || selectedMonth || getCurrentMonth());
-      setOrigin(incomeToEdit.origin || 'MASSOTERAPIA');
+      setOrigin(incomeToEdit.origin || 'Serviço');
       setStatus(incomeToEdit.status);
       setNotes(incomeToEdit.notes || '');
       setAlsoAddToSalary(false);
@@ -53,7 +53,7 @@ export const IncomeModal: React.FC<IncomeModalProps> = ({
       const initialDate = targetMonth === getCurrentMonth() ? getCurrentDate() : `${targetMonth}-01`;
       setDate(initialDate);
       setReferenceMonth(targetMonth);
-      setOrigin('MASSOTERAPIA');
+      setOrigin('Serviço');
       setStatus('RECEIVED');
       setNotes('');
       setAlsoAddToSalary(true);
@@ -228,7 +228,7 @@ export const IncomeModal: React.FC<IncomeModalProps> = ({
               type="text"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Ex: 1/3 de Férias, Massoterapia, Freelance, 13º Salário..."
+              placeholder="Ex: 1/3 de Férias, Freelance, Prestação de Serviço, 13º Salário..."
               className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:bg-white focus:border-emerald-500 focus:outline-hidden transition-all text-sm"
               required
               autoFocus
@@ -240,7 +240,7 @@ export const IncomeModal: React.FC<IncomeModalProps> = ({
                 { label: '1/3 de Férias', origin: '1/3 de Férias' },
                 { label: 'Férias', origin: 'Férias' },
                 { label: '13º Salário', origin: '13º Salário' },
-                { label: 'Massoterapia', origin: 'Serviço' },
+                { label: 'Prestação de Serviço', origin: 'Serviço' },
                 { label: 'Freelance', origin: 'Freelance' },
                 { label: 'Hora Extra', origin: 'Hora extra' },
                 { label: 'Bônus / PLR', origin: 'Bônus / PLR' },
@@ -382,7 +382,7 @@ export const IncomeModal: React.FC<IncomeModalProps> = ({
                     Somar também ao Salário Mensal Fixo deste mês
                   </span>
                   <span className="text-[11px] text-emerald-700/90 leading-tight block mt-0.5">
-                    Entra diretamente na soma do valor ganho no mês (Massoterapia, Pacotes e atendimentos).
+                    Entra diretamente na soma do valor ganho no mês junto aos salários.
                   </span>
                 </div>
               </label>

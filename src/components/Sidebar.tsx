@@ -18,7 +18,6 @@ import {
   Clock,
   Lock,
   FileSpreadsheet,
-  Cable,
 } from 'lucide-react';
 import { ActiveTab } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -61,7 +60,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'parcelamentos', label: 'Parcelamentos', icon: Layers },
     { id: 'categorias', label: 'Categorias', icon: Tag },
     { id: 'relatorios', label: 'Relatórios', icon: BarChart3 },
-    { id: 'integracoes', label: 'Integração de Sistemas', icon: Cable },
     { id: 'backup', label: 'Backup & Restauro', icon: Database },
     { id: 'configuracoes', label: 'Configurações', icon: Settings },
   ];

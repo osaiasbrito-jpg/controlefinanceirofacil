@@ -359,7 +359,6 @@ export type ActiveTab =
   | 'parcelamentos'
   | 'categorias'
   | 'relatorios'
-  | 'integracoes'
   | 'backup'
   | 'configuracoes'
   | 'perfil'

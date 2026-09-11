@@ -229,7 +229,7 @@ export async function getFullUserData(userId: string, userEmail?: string) {
       };
     });
 
-    // Mesclar lançamentos diretos da tabela renda_extra (Massoterapia)
+    // Mesclar lançamentos diretos da tabela renda_extra
     const combinedIncomes = [...(userIncomes || [])];
     try {
       const directRendaExtra = await db.select().from(rendaExtra);
@@ -245,12 +245,12 @@ export async function getFullUserData(userId: string, userEmail?: string) {
             id: re.id,
             userId: re.userId || 'osaiasbrito@gmail.com',
             amount: Number(re.valor) || 0,
-            description: re.descricao || 'MASSOTERAPIA',
+            description: re.descricao || 'Serviço',
             source: re.origemRenda || re.origem || 'SERVIÇO',
             date: re.data,
             referenceMonth: re.mesReferencia || (re.data ? re.data.substring(0, 7) : ''),
             status: 'RECEIVED',
-            notes: notesParts.join(' | ') || 'Lançamento via Integração Massoterapia',
+            notes: notesParts.join(' | ') || 'Lançamento de Serviço',
             createdAt: re.createdAt || new Date(),
             updatedAt: re.createdAt || new Date(),
           });

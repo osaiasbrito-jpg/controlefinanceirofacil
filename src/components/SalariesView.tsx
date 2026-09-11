@@ -29,15 +29,12 @@ export const SalariesView: React.FC<SalariesViewProps> = ({
   const { salaries, effectiveSalariesForMonth, selectedMonth, toggleSalaryStatus, settings } = useFinance();
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Selected month effective salaries (sum of base salary and massoterapia clinic sessions)
+  // Selected month effective salaries (sum of effective salaries for this month)
   const totalMonthSalary = useMemo(() => {
     return effectiveSalariesForMonth.reduce((acc, curr) => acc + (curr.amount || 0), 0);
   }, [effectiveSalariesForMonth]);
 
   const currentMonthSalary = effectiveSalariesForMonth[0] || salaries.find((s) => s.referenceMonth === selectedMonth);
-  const clinicSalariesCount = useMemo(() => {
-    return effectiveSalariesForMonth.filter((s) => s.description?.toLowerCase().includes('massoterapia') || s.id?.startsWith('sal-ext-') || s.id?.startsWith('sal-masso-')).length;
-  }, [effectiveSalariesForMonth]);
 
   // Other months salaries with instant search filtering
   const allSalariesSorted = useMemo(() => {
@@ -125,14 +122,6 @@ export const SalariesView: React.FC<SalariesViewProps> = ({
               <span>Data Prevista: {formatDateBR(currentMonthSalary.payDate)}</span>
               <span>•</span>
               <span className="font-semibold">{currentMonthSalary.description || 'Salário Mensal'}</span>
-              {clinicSalariesCount > 0 && (
-                <>
-                  <span>•</span>
-                  <span className="bg-emerald-500/30 text-emerald-200 px-2 py-0.5 rounded-md font-bold text-[10px]">
-                    +{clinicSalariesCount} atendimento(s) de Massoterapia somados
-                  </span>
-                </>
-              )}
             </div>
           ) : (
             <p className="text-xs text-indigo-200 mt-2">

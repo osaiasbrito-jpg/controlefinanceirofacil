@@ -13,7 +13,6 @@ import {
   testDatabaseConnection,
 } from './src/db/repositories';
 import { ensureDatabaseTables } from './src/db/init';
-import { integrationsRouter } from './src/server/integrationsRoutes';
 
 const __filenameSafe = typeof import.meta !== 'undefined' && import.meta.url ? fileURLToPath(import.meta.url) : (process.argv[1] || '');
 const __dirnameSafe = __filenameSafe ? path.dirname(__filenameSafe) : process.cwd();
@@ -46,72 +45,6 @@ async function startServer() {
 
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-  // External Systems Integration Routes (Gestão de Pessoas / Massoterapia)
-  app.use('/api/integrations', integrationsRouter);
-
-  // Financial Integration Test Connection alias (POST, GET, OPTIONS)
-  const handleTestConnection = async (req: express.Request, res: express.Response) => {
-    try {
-      const email = req.body?.accessEmail || req.body?.email || req.query?.email || 'osaiasbrito@gmail.com';
-      const category = req.body?.category || req.body?.section || req.query?.category || 'MASSOTERAPIA';
-      res.status(200).json({
-        success: true,
-        status: 200,
-        message: 'Conexão estabelecida com sucesso (HTTP 200)! Sistema Financeiro online e pronto para receber lançamentos.',
-        descricao: 'MASSOTERAPIA',
-        origem: 'SERVIÇO',
-        origem_renda: 'SERVIÇO',
-        data: {
-          status: 'online',
-          endpoint: '/api/integrations/massoterapia',
-          category,
-          authenticatedUser: email,
-          validatedAt: new Date().toISOString(),
-        },
-      });
-    } catch (err: any) {
-      res.status(500).json({ success: false, message: err.message });
-    }
-  };
-
-  app.post('/api/financial/test-connection', handleTestConnection);
-  app.get('/api/financial/test-connection', handleTestConnection);
-  app.all('/api/financial/test-connection', (req, res) => {
-    if (req.method === 'OPTIONS') return res.sendStatus(200);
-    return handleTestConnection(req, res);
-  });
-
-  // Teste de Conexão Bidirecional: testa conectividade com o Sistema de Clínicas
-  app.get('/api/integrations/test-clinic', async (_req, res) => {
-    const clinicUrl = 'https://gestaopacientesterapias.vercel.app';
-    const startTime = Date.now();
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 7000);
-      const pingRes = await fetch(clinicUrl, { signal: controller.signal });
-      clearTimeout(timeoutId);
-      const latencyMs = Date.now() - startTime;
-
-      res.status(200).json({
-        success: pingRes.ok,
-        status: pingRes.status,
-        latencyMs,
-        clinicUrl,
-        message: pingRes.ok
-          ? `Conexão com Sistema de Clínicas estabelecida com sucesso (${latencyMs}ms)!`
-          : `Sistema de Clínicas respondeu com status HTTP ${pingRes.status}`,
-        testedAt: new Date().toISOString(),
-      });
-    } catch (error: any) {
-      res.status(502).json({
-        success: false,
-        clinicUrl,
-        message: `Falha ao alcançar o Sistema de Clínicas: ${error.message || 'Tempo limite esgotado'}`,
-        testedAt: new Date().toISOString(),
-      });
-    }
-  });
 
   // Health check endpoint
   app.get('/api/health', (_req, res) => {

@@ -15,7 +15,6 @@ import {
   runTransaction,
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
-import { supabase } from '../supabaseClient';
 import { useAuth } from './AuthContext';
 import {
   Salary,
@@ -650,7 +649,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
         setIncomes((prev) => {
           const map = new Map<string, ExtraIncome>();
-          // Preserva itens do PostgreSQL / integração (ex: Atendimentos de Massoterapia / SERVIÇO)
+          // Preserva itens do PostgreSQL / receitas extras
           prev.forEach((item) => map.set(item.id, item));
           list.forEach((item) => map.set(item.id, item));
           return Array.from(map.values());
@@ -843,98 +842,10 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         currentUser.uid?.toLowerCase().includes('osaias');
       const targetUserId = isOsaias ? 'osaiasbrito@gmail.com' : (currentUser.uid || 'osaiasbrito@gmail.com');
 
-      // 0. Consulta direta e resiliente ao Supabase para capturar Atendimentos de Massoterapia/Fisioterapia
-      try {
-        const allowedUserIds = Array.from(
-          new Set(
-            [
-              currentUser?.uid,
-              currentUser?.email,
-              'osaiasbrito@gmail.com',
-              'super_admin_osaiasbrito',
-            ].filter(Boolean)
-          )
-        ) as string[];
-
-        // Busca registros da clínica no Supabase sem travar por ID restrito
-        const { data: sbIncomes, error: sbErr } = await supabase
-          .from('extra_incomes')
-          .select('*')
-          .order('date', { ascending: false });
-
-        if (!sbErr && Array.isArray(sbIncomes) && sbIncomes.length > 0) {
-          // 0.1 Inserir em Renda Extra
-          setIncomes((prev) => {
-            const map = new Map<string, ExtraIncome>();
-            prev.forEach((item) => map.set(item.id, item));
-            let hasNew = false;
-            sbIncomes.forEach((row: any) => {
-              const formatted: ExtraIncome = {
-                id: row.id,
-                userId: currentUser?.uid || row.user_id || 'osaiasbrito@gmail.com',
-                description: row.description || row.descricao || 'MASSOTERAPIA',
-                amount: Number(row.amount || row.valor || 0),
-                referenceMonth: row.reference_month || row.mes_referencia || (row.date ? row.date.substring(0, 7) : '2026-09'),
-                date: row.date || row.data || new Date().toISOString().split('T')[0],
-                origin: row.source || row.origin || row.origem_renda || 'MASSOTERAPIA',
-                status: row.status === 'PENDING' ? 'PENDING' : 'RECEIVED',
-                notes: row.notes || row.observacao || (row.client_name ? `Cliente/Paciente: ${row.client_name}` : ''),
-                clientName: row.client_name || row.cliente_paciente || undefined,
-                createdAt: row.created_at || new Date().toISOString(),
-                updatedAt: row.updated_at || new Date().toISOString(),
-              };
-
-              if (!map.has(row.id)) {
-                map.set(row.id, formatted);
-                hasNew = true;
-                if (currentUser?.uid && !isDemoUser) {
-                  setDoc(doc(db, 'incomes', formatted.id), sanitizeData(formatted), { merge: true }).catch(() => {});
-                }
-              }
-            });
-            return hasNew ? Array.from(map.values()) : prev;
-          });
-
-          // 0.2 Inserir em Salários (somar ao salário mensal fixo conforme regra do usuário)
-          setSalaries((prev) => {
-            const map = new Map<string, Salary>();
-            prev.forEach((item) => map.set(item.id, item));
-            let hasNew = false;
-            sbIncomes.forEach((row: any) => {
-              const client = row.client_name || row.cliente_paciente || '';
-              const refMonth = row.reference_month || row.mes_referencia || (row.date ? row.date.substring(0, 7) : '2026-09');
-              const salaryId = `sal-ext-${row.id}`;
-              const formattedSal: Salary = {
-                id: salaryId,
-                userId: currentUser?.uid || row.user_id || 'osaiasbrito@gmail.com',
-                amount: Number(row.amount || row.valor || 0),
-                referenceMonth: refMonth,
-                payDate: row.date || row.data || `${refMonth}-05`,
-                description: `Salário - MASSOTERAPIA (${client || 'Atendimento Clínica'})`,
-                status: row.status === 'PENDING' ? 'PENDING' : 'RECEIVED',
-                createdAt: row.created_at || new Date().toISOString(),
-                updatedAt: row.updated_at || new Date().toISOString(),
-              };
-
-              if (!map.has(salaryId)) {
-                map.set(salaryId, formattedSal);
-                hasNew = true;
-                if (currentUser?.uid && !isDemoUser) {
-                  setDoc(doc(db, 'salaries', formattedSal.id), sanitizeData(formattedSal), { merge: true }).catch(() => {});
-                }
-              }
-            });
-            return hasNew ? Array.from(map.values()) : prev;
-          });
-        }
-      } catch (sbErr) {
-        console.warn('Aviso ao consultar Supabase diretamente:', sbErr);
-      }
-
       const pgData = await loadUserDataFromPostgres(targetUserId, token, currentUser.email || undefined);
       if (!pgData) return;
 
-      // 1. Mesclar Incomes do PostgreSQL (ex: Atendimentos de MASSOTERAPIA)
+      // 1. Mesclar Incomes do PostgreSQL
       if (Array.isArray(pgData.incomes) && pgData.incomes.length > 0) {
         setIncomes((prev) => {
           const map = new Map<string, ExtraIncome>();
@@ -948,7 +859,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
               amount: Number(pgInc.amount),
               referenceMonth: pgInc.referenceMonth || (pgInc.date ? pgInc.date.substring(0, 7) : ''),
               date: pgInc.date,
-              origin: pgInc.source || 'MASSOTERAPIA',
+              origin: pgInc.source || 'Serviço',
               status: pgInc.status === 'PENDING' ? 'PENDING' : 'RECEIVED',
               notes: pgInc.notes || '',
               createdAt: pgInc.createdAt || new Date().toISOString(),
@@ -968,7 +879,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         });
       }
 
-      // 2. Mesclar Salaries do PostgreSQL (ex: Salários de Massoterapia somados ao Salário Fixo)
+      // 2. Mesclar Salaries do PostgreSQL
       if (Array.isArray(pgData.salaries) && pgData.salaries.length > 0) {
         setSalaries((prev) => {
           const map = new Map<string, Salary>();
@@ -1172,22 +1083,9 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     };
     window.addEventListener('focus', handleFocus);
 
-    // Escuta em tempo real de novos lançamentos de Massoterapia / Fisioterapia no Supabase
-    const channel = supabase
-      .channel('realtime:extra_incomes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'extra_incomes' },
-        () => {
-          refreshDataFromPostgres();
-        }
-      )
-      .subscribe();
-
     return () => {
       clearInterval(intervalId);
       window.removeEventListener('focus', handleFocus);
-      supabase.removeChannel(channel);
     };
   }, [currentUser, isDemoUser, refreshDataFromPostgres]);
 
