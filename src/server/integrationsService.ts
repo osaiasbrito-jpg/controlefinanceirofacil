@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { db, pool } from '../db';
 import { extraIncomes, salaries, users, systemIntegrationsLog, categories, rendaExtra } from '../db/schema';
-import { eq, desc } from 'drizzle-orm';
+import { eq, or, desc } from 'drizzle-orm';
 import { adminDb } from '../lib/firebase-admin';
 
 const INTEGRATION_SECRET = process.env.INTEGRATION_SECRET || 'meu-controle-financeiro-secret-key-2026';
@@ -270,145 +270,63 @@ export function parseCurrencyAmount(raw: any): number {
 }
 
 /**
- * Registra o atendimento ou pacote de massoterapia vindo do sistema de Gestão de Pessoas:
- * 1. Atendimento de Sessão Avulsa (Print 03): Lança em Renda Extra (MASSOTERAPIA) e Salário Mensal Fixo
- * 2. Cadastro de Pacote (Print 04): Valor cobrado UMA ÚNICA VEZ que entra na soma do valor ganho no mês
- * 3. Sessão de Pacote Pré-Pago: Registra no histórico da clínica sem duplicar o valor financeiro
+ * Localiza ou normaliza o usuário para integração
+ */
+export async function findOrCreateIntegrationUser(identifier: string): Promise<{ uid: string; email: string }> {
+  const cleanId = (identifier || 'osaiasbrito@gmail.com').trim().toLowerCase();
+
+  if (cleanId === 'osaiasbrito@gmail.com' || cleanId.includes('osaias')) {
+    return {
+      uid: 'osaiasbrito@gmail.com',
+      email: 'osaiasbrito@gmail.com',
+    };
+  }
+
+  try {
+    const records = await db
+      .select()
+      .from(users)
+      .where(or(eq(users.email, cleanId), eq(users.uid, cleanId)));
+    if (records.length > 0) {
+      return { uid: records[0].uid, email: records[0].email };
+    }
+  } catch {}
+
+  return {
+    uid: cleanId,
+    email: cleanId.includes('@') ? cleanId : `${cleanId}@gmail.com`,
+  };
+}
+
+/**
+ * Atualização da função registerMassoterapiaIncome para aceitar os campos tanto em inglês quanto em português
  */
 export async function registerMassoterapiaIncome(
-  userId: string,
-  payload: MassoterapiaIncomePayload
+  userEmail: string,
+  payload: any
 ) {
-  const rawAmount = payload.amount ?? payload.valor ?? payload.value ?? payload.price;
-  const numAmount = parseCurrencyAmount(rawAmount);
+  const user = await findOrCreateIntegrationUser(userEmail);
+  const userId = user.uid;
 
-  const clientName = (
-    payload.cliente_paciente ||
-    payload.clientName ||
-    payload.nomeCliente ||
-    payload.paciente ||
-    payload.client ||
-    ''
-  ).trim();
-  const rawDesc = (payload.description || payload.procedimento || payload.servico || '').trim();
-  const rawDate = payload.date || payload.data;
-  const rawMonth = payload.referenceMonth || payload.mesReferencia;
-
-  const { date: defaultDate, month: defaultMonth, day: defaultDay } = getBrazilCurrentDate();
-  const effectiveDate = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : defaultDate;
-  const effectiveMonth =
-    rawMonth && /^\d{4}-\d{2}$/.test(rawMonth)
-      ? rawMonth
-      : effectiveDate.substring(0, 7) || defaultMonth;
-
-  // Identificação do tipo de lançamento
-  const isPrepaidPackageSession =
-    payload.isPackageSession === true ||
-    payload.sessaoDePacote === true ||
-    payload.belongsToPackage === true ||
-    payload.tipo === 'PACOTE_SESSAO' ||
-    (numAmount === 0 && Boolean(clientName));
-
-  const isPackageRegistration =
-    !isPrepaidPackageSession &&
-    (payload.isPackage === true ||
-      payload.ePacote === true ||
-      payload.tipo === 'PACOTE' ||
-      (Boolean(payload.packageName || payload.nomePacote) && numAmount > 0));
+  // Normalização de parâmetros flexível (inglês e português)
+  const numAmount = Number(payload.amount ?? payload.valor ?? payload.value ?? payload.price ?? 0);
+  const clientName = payload.clientName || payload.cliente_paciente || payload.clienteNome || payload.paciente || payload.client || 'Cliente';
+  const effectiveDate = payload.date || payload.data || new Date().toISOString().split('T')[0];
+  const effectiveMonth = payload.referenceMonth || payload.mes_referencia || payload.mesReferencia || payload.month || payload.mes || effectiveDate.substring(0, 7);
+  const procedimento = payload.procedimento || payload.servico || payload.description || payload.descricao || 'Atendimento Massoterapia';
 
   const timestamp = Date.now();
   const randomSuffix = Math.random().toString(36).substring(2, 8);
   const incomeId = `inc-ext-${timestamp}-${randomSuffix}`;
   const salaryId = `sal-ext-${timestamp}-${randomSuffix}`;
 
-  // =========================================================================
-  // CENÁRIO 1: Sessão de Pacote Já Pago (Evita Duplicar Cobrança Financeira)
-  // =========================================================================
-  if (isPrepaidPackageSession && !isPackageRegistration) {
-    const sessionNum = payload.sessionNumber || payload.numeroSessao;
-    const sessionDesc = rawDesc || (clientName
-      ? `MASSOTERAPIA - Sessão de Pacote${sessionNum ? ` #${sessionNum}` : ''} (${clientName})`
-      : 'MASSOTERAPIA - Sessão de Pacote Pré-Pago');
-
-    const logNotes = [
-      clientName ? `Cliente: ${clientName}` : null,
-      sessionNum ? `Sessão nº: ${sessionNum}` : null,
-      payload.notes || payload.observacoes ? (payload.notes || payload.observacoes)?.trim() : null,
-      'Sessão vinculada a pacote pré-pago | Receita financeira já computada no cadastro do pacote',
-    ].filter(Boolean).join(' | ');
-
-    // Registra no log de auditoria da clínica
-    try {
-      await db.insert(systemIntegrationsLog).values({
-        id: `log-${timestamp}-${randomSuffix}`,
-        userId,
-        systemName: 'Gestão de Pessoas - Massoterapia',
-        action: 'SESSAO_PACOTE_PREPAGO',
-        amount: 0,
-        clientName: clientName || null,
-        description: sessionDesc,
-        payload: payload as any,
-        response: {
-          status: 'PREPAID_SESSION_RECORDED',
-          duplicatePrevented: true,
-          sessionNumber: sessionNum || null,
-          message: 'Sessão de pacote realizada e registrada sem duplicar receita financeira.',
-        } as any,
-        createdAt: new Date(),
-      });
-    } catch (err) {
-      console.warn('Aviso ao registrar log de sessão de pacote:', err);
-    }
-
-    return {
-      success: true,
-      isPackageSession: true,
-      duplicatePrevented: true,
-      action: 'SESSAO_PACOTE_PREPAGO',
-      clientName,
-      message: `Sessão do pacote (${clientName || 'Cliente'}) registrada com sucesso no histórico! Nenhuma cobrança duplicada foi gerada, pois o valor do pacote já foi computado no faturamento do mês.`,
-    };
-  }
-
-  // =========================================================================
-  // CENÁRIO 2 & 3: Cadastro de Pacote (Print 04) ou Sessão Avulsa (Print 03)
-  // =========================================================================
-  if (numAmount <= 0) {
-    throw new Error('O valor do atendimento ou pacote deve ser maior que zero (R$ 0,00).');
-  }
-
-  const packageName = (payload.packageName || payload.nomePacote || payload.titulo || '').trim();
-  const totalSessions = payload.totalSessions || payload.sessoes || payload.quantidadeSessoes || 0;
-
-  let finalDesc = 'MASSOTERAPIA';
-  let actionType = 'ATENDIMENTO_SESSAO';
-
-  if (isPackageRegistration) {
-    actionType = 'CADASTRO_PACOTE';
-  } else {
-    actionType = 'ATENDIMENTO_SESSAO';
-  }
-
-  const finalSource = 'SERVIÇO';
-  const finalStatus = payload.status === 'PENDING' ? 'PENDING' : 'RECEIVED';
-  const alsoAddToSalary = payload.alsoAddToSalary !== false && payload.somarAoSalario !== false;
-
-  const notesList = [
-    clientName ? `Cliente/Paciente: ${clientName}` : null,
-    payload.procedimento || payload.servico ? `Procedimento: ${payload.procedimento || payload.servico}` : null,
-    isPackageRegistration && totalSessions > 0 ? `Pacote: ${totalSessions} sessões contratadas` : null,
-    isPackageRegistration ? 'Valor cobrado uma única vez no mês' : null,
-    payload.observacao ? payload.observacao.trim() : null,
-    payload.notes || payload.observacoes ? (payload.notes || payload.observacoes)?.trim() : null,
-    'Lançado via Sistema de Gestão de Pessoas (Massoterapia)',
-  ].filter(Boolean);
-  const finalNotes = notesList.join(' | ');
-
-  // 1. Inserir na tabela direta renda_extra (especificação do Sistema de Massoterapia)
+  // 1. Tabela renda_extra (Compatibilidade)
   try {
     await pool.query(
       `INSERT INTO "renda_extra" (
-        "id", "descricao", "origem_renda", "origem", "tipo", "categoria", "valor", "data", "mes_referencia", "mes", "observacao", "cliente_paciente", "procedimento", "somar_ao_salario", "user_id", "created_at"
+        "id", "descricao", "origem_renda", "origem", "tipo", "categoria", 
+        "valor", "data", "mes_referencia", "mes", "observacao", 
+        "cliente_paciente", "procedimento", "somar_ao_salario", "user_id", "created_at"
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())`,
       [
         incomeId,
@@ -416,51 +334,23 @@ export async function registerMassoterapiaIncome(
         'SERVIÇO',
         'SERVIÇO',
         'Renda Extra',
-        'Renda Extra',
+        'SERVIÇO',
         numAmount,
         effectiveDate,
         effectiveMonth,
         effectiveMonth,
-        finalNotes,
-        clientName || null,
-        payload.procedimento || payload.servico || (isPackageRegistration ? 'Pacote' : 'Atendimento'),
-        alsoAddToSalary,
+        `Cliente/Paciente: ${clientName} | Procedimento: ${procedimento}`,
+        clientName,
+        procedimento,
+        true,
         userId,
       ]
     );
   } catch (errRendaExtra) {
-    console.warn('Aviso ao inserir na tabela renda_extra:', errRendaExtra);
+    console.warn('Aviso ao registrar em renda_extra:', errRendaExtra);
   }
 
-  // 2. Garantir que a categoria SERVIÇO e MASSOTERAPIA existam no banco PostgreSQL
-  try {
-    const existingCat = await db
-      .select()
-      .from(categories)
-      .where(eq(categories.userId, userId));
-    
-    const hasServico = existingCat.some(
-      (c) => c.name.toLowerCase().includes('serviço') || c.name.toLowerCase().includes('servico')
-    );
-
-    if (!hasServico) {
-      await db.insert(categories).values({
-        id: `cat-servico-${timestamp}`,
-        userId,
-        name: 'SERVIÇO',
-        type: 'INCOME',
-        icon: 'Briefcase',
-        color: '#10B981',
-        isDefault: true,
-        isArchived: false,
-        updatedAt: new Date(),
-      });
-    }
-  } catch (err) {
-    console.warn('Aviso ao verificar categorias no PostgreSQL:', err);
-  }
-
-  // 3. Inserir em extra_incomes (Renda Extra do Controle Financeiro)
+  // 2. Tabela extra_incomes (Estrutura Principal)
   await db.insert(extraIncomes).values({
     id: incomeId,
     userId,
@@ -469,44 +359,33 @@ export async function registerMassoterapiaIncome(
     source: 'SERVIÇO',
     date: effectiveDate,
     referenceMonth: effectiveMonth,
-    status: finalStatus,
-    notes: finalNotes,
+    status: 'RECEIVED',
+    notes: `Cliente/Paciente: ${clientName} | Procedimento: ${procedimento}`,
     createdAt: new Date(),
     updatedAt: new Date(),
   });
 
-  // 4. Inserir em salaries para somar como salário mensal fixo no mês em vigor
-  let salaryRecord = null;
-  const payDayNumber = parseInt(effectiveDate.substring(8, 10), 10) || defaultDay;
-  const salaryDesc = `Salário - MASSOTERAPIA (${clientName ? clientName : 'Atendimento'})`;
-
-  if (alsoAddToSalary) {
+  // 3. Tabela de Salários (Soma ao Salário Mensal)
+  const shouldAddToSalary = (payload.alsoAddToSalary ?? payload.somarAoSalario) ?? true;
+  if (shouldAddToSalary) {
+    const salaryDesc = `Salário - MASSOTERAPIA (${clientName})`;
     await db.insert(salaries).values({
       id: salaryId,
       userId,
       amount: numAmount,
       referenceMonth: effectiveMonth,
       description: salaryDesc,
-      payDay: Math.min(28, Math.max(1, payDayNumber)),
-      status: finalStatus,
+      payDay: parseInt(effectiveDate.substring(8, 10), 10) || 5,
+      status: 'RECEIVED',
       active: true,
-      notes: `Lançamento de Massoterapia somado ao Salário Fixo Mensal. ${finalNotes}`,
+      notes: `Atendimento de Massoterapia somado ao Salário Fixo Mensal.`,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-
-    salaryRecord = {
-      id: salaryId,
-      amount: numAmount,
-      referenceMonth: effectiveMonth,
-      description: salaryDesc,
-      status: finalStatus,
-    };
   }
 
-  // 5. Sincronização direta com o Firestore do Firebase (apenas se credenciais de Service Account existirem)
-  const hasServiceAccount = !!(process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.FIREBASE_SERVICE_ACCOUNT);
-  if (adminDb && hasServiceAccount) {
+  // 4. Firestore (Sincronização em tempo real caso SDK/Admin esteja ativo)
+  if (adminDb) {
     try {
       await adminDb.collection('incomes').doc(incomeId).set({
         id: incomeId,
@@ -517,84 +396,36 @@ export async function registerMassoterapiaIncome(
         source: 'SERVIÇO',
         date: effectiveDate,
         referenceMonth: effectiveMonth,
-        status: finalStatus,
-        notes: finalNotes,
-        isRecurring: false,
+        status: 'RECEIVED',
+        notes: `Cliente/Paciente: ${clientName} | Procedimento: ${procedimento}`,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
 
-      if (alsoAddToSalary) {
+      if (shouldAddToSalary) {
         await adminDb.collection('salaries').doc(salaryId).set({
           id: salaryId,
           userId,
           amount: numAmount,
-          description: salaryDesc,
+          description: `Salário - MASSOTERAPIA (${clientName})`,
           referenceMonth: effectiveMonth,
-          payDate: `${effectiveMonth}-${String(Math.min(28, Math.max(1, payDayNumber))).padStart(2, '0')}`,
-          status: finalStatus,
-          isStandardDefault: false,
-          notes: finalNotes,
+          payDate: effectiveDate,
+          status: 'RECEIVED',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         });
       }
-    } catch (fsErr: any) {
-      // Ignora silenciosamente se o container não tiver privilégios de Service Account no Firestore Admin
-      // A persistência oficial e primária reside no PostgreSQL
-      if (process.env.DEBUG_FIRESTORE) {
-        console.warn('Aviso ao sincronizar diretamente com Firestore Admin:', fsErr?.message || fsErr);
-      }
-    }
+    } catch {}
   }
-
-  // 5. Gravar no log de integrações para auditoria e histórico
-  try {
-    await db.insert(systemIntegrationsLog).values({
-      id: `log-${timestamp}-${randomSuffix}`,
-      userId,
-      systemName: 'Gestão de Pessoas - Massoterapia',
-      action: actionType,
-      amount: numAmount,
-      clientName: clientName || null,
-      description: finalDesc,
-      payload: payload as any,
-      response: {
-        incomeId,
-        salaryId: salaryRecord?.id || null,
-        status: 'SUCCESS',
-        amount: numAmount,
-        month: effectiveMonth,
-        isPackage: isPackageRegistration,
-      } as any,
-      createdAt: new Date(),
-    });
-  } catch (err) {
-    console.warn('Aviso ao registrar log de integração:', err);
-  }
-
-  const successMessage = isPackageRegistration
-    ? `Pacote de Massoterapia (R$ ${numAmount.toFixed(2)}) cadastrado com sucesso! Valor único lançado em Renda Extra e somado ao Salário Mensal Fixo de ${effectiveMonth}.`
-    : `Atendimento de R$ ${numAmount.toFixed(2)} lançado com sucesso em Renda Extra (${finalSource}) e somado ao Salário Mensal Fixo de ${effectiveMonth}!`;
 
   return {
     success: true,
-    action: actionType,
-    isPackage: isPackageRegistration,
-    income: {
-      id: incomeId,
-      userId,
-      amount: numAmount,
-      description: finalDesc,
-      category: finalSource,
-      date: effectiveDate,
-      referenceMonth: effectiveMonth,
-      status: finalStatus,
-      notes: finalNotes,
-    },
-    salary: salaryRecord,
-    addedToSalary: alsoAddToSalary,
-    message: successMessage,
+    incomeId,
+    salaryId: shouldAddToSalary ? salaryId : null,
+    amount: numAmount,
+    clientName,
+    referenceMonth: effectiveMonth,
+    message: `Atendimento de ${clientName} (R$ ${numAmount.toFixed(2)}) computado com sucesso!`
   };
 }
 
