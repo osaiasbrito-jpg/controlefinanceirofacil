@@ -2,30 +2,7 @@
   publish = "dist"
   command = "npm run build"
 
-[functions]
-  directory = "netlify/functions"
-
-# Rota dedicada da Integração Massoterapia processada diretamente pela Netlify Serverless Function
-[[redirects]]
-  from = "/api/integrations/massoterapia"
-  to = "/.netlify/functions/massoterapia"
-  status = 200
-  force = true
-
-[[redirects]]
-  from = "/api/integrations/credentials"
-  to = "/.netlify/functions/massoterapia"
-  status = 200
-  force = true
-
-[[redirects]]
-  from = "/api/financial/test-connection"
-  to = "/.netlify/functions/massoterapia"
-  status = 200
-  force = true
-
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
-

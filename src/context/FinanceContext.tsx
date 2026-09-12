@@ -608,7 +608,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         snapshot.forEach((docSnap) => list.push({ id: docSnap.id, ...(docSnap.data() as any) }));
         setSalaries((prev) => {
           const map = new Map<string, Salary>();
-          // Preserva itens carregados do PostgreSQL ou de integração
+          // Preserva itens carregados do PostgreSQL
           prev.forEach((s) => map.set(s.id, s));
           list.forEach((s) => map.set(s.id, s));
           return Array.from(map.values());
@@ -827,7 +827,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     settings,
   ]);
 
-  // Sincronização e merge de dados externos inseridos diretamente no PostgreSQL via API de Integração
+  // Sincronização e merge de dados do PostgreSQL
   const refreshDataFromPostgres = useCallback(async () => {
     if (!currentUser || isDemoUser) return;
     isRefreshingFromPgRef.current = true;
