@@ -216,10 +216,22 @@ export const rendaExtra = pgTable('renda_extra', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+// Tabela Dedicada para Renda Massoterapia
+export const rendaMassoterapia = pgTable('renda_massoterapia', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  dataLancamento: text('data_lancamento').notNull(), // YYYY-MM-DD
+  valor: doublePrecision('valor').notNull(),
+  observacao: text('observacao'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   salaries: many(salaries),
   extraIncomes: many(extraIncomes),
+  rendaMassoterapia: many(rendaMassoterapia),
   expenses: many(expenses),
   creditCards: many(creditCards),
   categories: many(categories),

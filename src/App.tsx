@@ -6,6 +6,7 @@ import { Header } from './components/Header';
 import { DashboardView } from './components/DashboardView';
 import { SalariesView } from './components/SalariesView';
 import { IncomesView } from './components/IncomesView';
+import { MassoterapiaView } from './components/MassoterapiaView';
 import { ExpensesView } from './components/ExpensesView';
 import { CardsView } from './components/CardsView';
 import { InstallmentsView } from './components/InstallmentsView';
@@ -327,6 +328,7 @@ const MainLayout: React.FC = () => {
                   onOpenIncomeModal={handleOpenIncomeModal}
                   onDeleteIncome={handleDeleteIncome}
                 />
+                <MassoterapiaView />
               </div>
             )}
 
@@ -342,6 +344,10 @@ const MainLayout: React.FC = () => {
                 onOpenIncomeModal={handleOpenIncomeModal}
                 onDeleteIncome={handleDeleteIncome}
               />
+            )}
+
+            {activeTab === 'massoterapia' && (
+              <MassoterapiaView />
             )}
 
             {activeTab === 'despesas' && (

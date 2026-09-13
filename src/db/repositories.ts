@@ -4,6 +4,7 @@ import {
   userSettings,
   salaries,
   extraIncomes,
+  rendaMassoterapia,
   expenses,
   creditCards,
   customPaymentMethods,
@@ -20,6 +21,7 @@ export interface SyncDataPayload {
   userId: string;
   salaries?: any[];
   incomes?: any[];
+  massoterapia?: any[];
   expenses?: any[];
   creditCards?: any[];
   paymentMethods?: any[];
@@ -196,6 +198,7 @@ export async function getFullUserData(userId: string, userEmail?: string) {
     const [
       userSalaries,
       userIncomes,
+      userMassoterapia,
       userExpenses,
       userCards,
       userMethods,
@@ -206,6 +209,7 @@ export async function getFullUserData(userId: string, userEmail?: string) {
     ] = await Promise.all([
       db.select().from(salaries).where(filterCondition(salaries.userId)),
       db.select().from(extraIncomes).where(filterCondition(extraIncomes.userId)),
+      db.select().from(rendaMassoterapia).where(filterCondition(rendaMassoterapia.userId)),
       db.select().from(expenses).where(filterCondition(expenses.userId)),
       db.select().from(creditCards).where(filterCondition(creditCards.userId)),
       db.select().from(customPaymentMethods).where(filterCondition(customPaymentMethods.userId)),
@@ -234,6 +238,7 @@ export async function getFullUserData(userId: string, userEmail?: string) {
     return {
       salaries: userSalaries,
       incomes: combinedIncomes,
+      massoterapia: userMassoterapia || [],
       expenses: mappedExpenses,
       creditCards: userCards,
       paymentMethods: userMethods,
@@ -397,6 +402,32 @@ export async function syncUserData(payload: SyncDataPayload) {
               referenceMonth: inc.referenceMonth || (inc.date ? inc.date.substring(0, 7) : null),
               status: inc.status,
               notes: inc.notes,
+              updatedAt: new Date(),
+            },
+          });
+      });
+    }
+
+    // 4.1. Massoterapia Incomes
+    if (payload.massoterapia && Array.isArray(payload.massoterapia)) {
+      const validMasso = payload.massoterapia.filter((m) => m && m.id);
+      await processBatched(validMasso, 20, async (m) => {
+        await db
+          .insert(rendaMassoterapia)
+          .values({
+            id: String(m.id),
+            userId,
+            dataLancamento: m.dataLancamento || (m.date ? String(m.date) : new Date().toISOString().substring(0, 10)),
+            valor: Number(m.valor !== undefined ? m.valor : m.amount) || 0,
+            observacao: m.observacao || m.notes || null,
+            updatedAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: rendaMassoterapia.id,
+            set: {
+              dataLancamento: m.dataLancamento || (m.date ? String(m.date) : new Date().toISOString().substring(0, 10)),
+              valor: Number(m.valor !== undefined ? m.valor : m.amount) || 0,
+              observacao: m.observacao || m.notes || null,
               updatedAt: new Date(),
             },
           });
@@ -604,6 +635,10 @@ export async function deleteEntity(table: string, id: string, userId: string) {
       case 'incomes':
         await db.delete(extraIncomes).where(and(eq(extraIncomes.id, id), eq(extraIncomes.userId, userId)));
         break;
+      case 'renda_massoterapia':
+      case 'massoterapia':
+        await db.delete(rendaMassoterapia).where(and(eq(rendaMassoterapia.id, id), eq(rendaMassoterapia.userId, userId)));
+        break;
       case 'credit_cards':
         await db.delete(creditCards).where(and(eq(creditCards.id, id), eq(creditCards.userId, userId)));
         break;
@@ -654,5 +689,72 @@ export async function testDatabaseConnection() {
       error: error?.message || 'Erro desconhecido na conexão',
       timestamp: new Date().toISOString(),
     };
+  }
+}
+
+// Operações Dedicadas para Renda Massoterapia
+export async function getMassoterapiaRecords(userId: string, mesReferencia?: string) {
+  try {
+    let query = db
+      .select()
+      .from(rendaMassoterapia)
+      .where(eq(rendaMassoterapia.userId, userId))
+      .orderBy(desc(rendaMassoterapia.dataLancamento));
+
+    const records = await query;
+    if (mesReferencia && mesReferencia !== 'TODOS') {
+      return records.filter((r) => r.dataLancamento && r.dataLancamento.substring(0, 7) === mesReferencia);
+    }
+    return records;
+  } catch (error) {
+    console.error('Falha ao buscar registros de massoterapia:', error);
+    throw error;
+  }
+}
+
+export async function upsertMassoterapiaRecord(userId: string, item: any) {
+  try {
+    const id = String(item.id || `masso_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`);
+    const valor = Number(item.valor !== undefined ? item.valor : item.amount) || 0;
+    const dataLancamento = item.dataLancamento || item.date || new Date().toISOString().substring(0, 10);
+    const observacao = item.observacao || item.notes || null;
+
+    const result = await db
+      .insert(rendaMassoterapia)
+      .values({
+        id,
+        userId,
+        dataLancamento,
+        valor,
+        observacao,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: rendaMassoterapia.id,
+        set: {
+          dataLancamento,
+          valor,
+          observacao,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+
+    return result[0];
+  } catch (error) {
+    console.error('Falha ao salvar registro de massoterapia:', error);
+    throw error;
+  }
+}
+
+export async function deleteMassoterapiaRecord(userId: string, id: string) {
+  try {
+    await db
+      .delete(rendaMassoterapia)
+      .where(and(eq(rendaMassoterapia.id, id), eq(rendaMassoterapia.userId, userId)));
+    return { success: true, id };
+  } catch (error) {
+    console.error('Falha ao excluir registro de massoterapia:', error);
+    throw error;
   }
 }

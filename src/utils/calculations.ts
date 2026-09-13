@@ -1,6 +1,7 @@
 import {
   Salary,
   ExtraIncome,
+  RendaMassoterapia,
   Expense,
   CreditCard,
   Category,
@@ -146,18 +147,35 @@ export const getEffectiveIncomesForMonth = (
   });
 };
 
+/**
+ * Retorna os lançamentos de renda de massoterapia do mês de referência
+ */
+export const getEffectiveMassoterapiaForMonth = (
+  month: string,
+  massoterapiaIncomes: RendaMassoterapia[] = []
+): RendaMassoterapia[] => {
+  return massoterapiaIncomes.filter((m) => {
+    const itemMonth = m.referenceMonth || (m.dataLancamento ? m.dataLancamento.substring(0, 7) : '');
+    return itemMonth === month;
+  });
+};
+
 export const calculateMonthSummary = (
   month: string,
   salaries: Salary[],
   incomes: ExtraIncome[],
   expenses: Expense[],
-  settings?: UserSettings | null
+  settings?: UserSettings | null,
+  massoterapiaIncomes: RendaMassoterapia[] = []
 ): MonthFinancialSummary => {
   // 1. Effective salaries for target referenceMonth (including standardized default if applicable)
   const monthSalaries = getEffectiveSalariesForMonth(month, salaries, settings);
 
   // 2. Effective extra incomes (recurring standard incomes + month punctual incomes)
   const monthIncomes = getEffectiveIncomesForMonth(month, incomes);
+
+  // 2.1. Effective massoterapia incomes for target referenceMonth
+  const monthMassoterapia = getEffectiveMassoterapiaForMonth(month, massoterapiaIncomes);
 
   // 3. Expenses for target referenceMonth
   const monthExpenses = expenses.filter((e) => e.referenceMonth === month);
@@ -176,9 +194,12 @@ export const calculateMonthSummary = (
     .reduce((acc, curr) => acc + (curr.amount || 0), 0);
   const pendingExtraIncome = totalExtraIncome - receivedExtraIncome;
 
-  // Total Revenues
-  const totalRevenue = totalSalary + totalExtraIncome;
-  const receivedRevenue = receivedSalary + receivedExtraIncome;
+  // Massoterapia calculations
+  const totalMassoterapia = monthMassoterapia.reduce((acc, curr) => acc + (curr.valor || 0), 0);
+
+  // Total Revenues: Salário Fixo + Renda Massoterapia + Renda Extra Avulsa
+  const totalRevenue = totalSalary + totalMassoterapia + totalExtraIncome;
+  const receivedRevenue = receivedSalary + totalMassoterapia + receivedExtraIncome;
   const pendingRevenue = pendingSalary + pendingExtraIncome;
 
   // Expenses calculations
@@ -216,6 +237,7 @@ export const calculateMonthSummary = (
     totalExtraIncome,
     receivedExtraIncome,
     pendingExtraIncome,
+    totalMassoterapia,
     totalRevenue,
     receivedRevenue,
     pendingRevenue,

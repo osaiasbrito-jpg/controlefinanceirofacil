@@ -11,6 +11,9 @@ import {
   deleteEntity,
   upsertUserSettings,
   testDatabaseConnection,
+  getMassoterapiaRecords,
+  upsertMassoterapiaRecord,
+  deleteMassoterapiaRecord,
 } from './src/db/repositories';
 import { ensureDatabaseTables } from './src/db/init';
 
@@ -178,6 +181,114 @@ async function startServer() {
     } catch (error: any) {
       console.error('Erro ao deletar registro no PostgreSQL:', error);
       res.status(500).json({ error: 'Falha ao deletar registro no banco', details: error.message });
+    }
+  });
+
+  // Endpoints Dedicados para Renda Massoterapia
+  app.get('/api/renda-massoterapia', optionalAuth, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user?.uid || (req.query.userId as string) || req.user?.email || 'osaiasbrito@gmail.com';
+      const mes = req.query.mes as string | undefined;
+      const records = await getMassoterapiaRecords(userId, mes);
+      res.json({ success: true, data: records });
+    } catch (error: any) {
+      console.error('Erro ao buscar lançamentos de massoterapia:', error);
+      res.status(500).json({ error: 'Falha ao buscar lançamentos de massoterapia', details: error.message });
+    }
+  });
+
+  app.post('/api/renda-massoterapia', optionalAuth, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user?.uid || req.body?.userId || req.user?.email || 'osaiasbrito@gmail.com';
+      const { valor, dataLancamento, observacao, id } = req.body;
+
+      if (valor === undefined || valor === null || Number(valor) <= 0) {
+        return res.status(400).json({ error: 'O valor da renda de massoterapia deve ser positivo e maior que zero.' });
+      }
+
+      if (!dataLancamento) {
+        return res.status(400).json({ error: 'A data do recebimento é obrigatória.' });
+      }
+
+      const saved = await upsertMassoterapiaRecord(userId, {
+        id,
+        valor: Number(valor),
+        dataLancamento,
+        observacao: observacao || null,
+      });
+
+      res.status(201).json({
+        success: true,
+        message: 'Renda de massoterapia lançada com sucesso.',
+        data: saved,
+      });
+    } catch (error: any) {
+      console.error('Erro ao lançar renda de massoterapia:', error);
+      res.status(500).json({ error: 'Falha ao lançar renda de massoterapia', details: error.message });
+    }
+  });
+
+  app.put('/api/renda-massoterapia/:id', optionalAuth, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user?.uid || req.body?.userId || req.user?.email || 'osaiasbrito@gmail.com';
+      const { id } = req.params;
+      const { valor, dataLancamento, observacao } = req.body;
+
+      if (valor !== undefined && Number(valor) <= 0) {
+        return res.status(400).json({ error: 'O valor da renda de massoterapia deve ser positivo e maior que zero.' });
+      }
+
+      const updated = await upsertMassoterapiaRecord(userId, {
+        id,
+        valor: valor !== undefined ? Number(valor) : undefined,
+        dataLancamento,
+        observacao,
+      });
+
+      res.json({
+        success: true,
+        message: 'Lançamento de massoterapia atualizado com sucesso.',
+        data: updated,
+      });
+    } catch (error: any) {
+      console.error('Erro ao atualizar lançamento de massoterapia:', error);
+      res.status(500).json({ error: 'Falha ao atualizar lançamento de massoterapia', details: error.message });
+    }
+  });
+
+  app.delete('/api/renda-massoterapia/:id', optionalAuth, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user?.uid || (req.query.userId as string) || req.user?.email || 'osaiasbrito@gmail.com';
+      const { id } = req.params;
+
+      await deleteMassoterapiaRecord(userId, id);
+      res.json({ success: true, message: 'Lançamento de massoterapia excluído com sucesso.' });
+    } catch (error: any) {
+      console.error('Erro ao excluir lançamento de massoterapia:', error);
+      res.status(500).json({ error: 'Falha ao excluir lançamento de massoterapia', details: error.message });
+    }
+  });
+
+  app.get('/api/renda-massoterapia/resumo', optionalAuth, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user?.uid || (req.query.userId as string) || req.user?.email || 'osaiasbrito@gmail.com';
+      const mes = (req.query.mes as string) || new Date().toISOString().substring(0, 7);
+      const records = await getMassoterapiaRecords(userId, mes);
+
+      const totalRecebido = records.reduce((acc, curr) => acc + (Number(curr.valor) || 0), 0);
+      const quantidade = records.length;
+      const mediaPorLancamento = quantidade > 0 ? totalRecebido / quantidade : 0;
+
+      res.json({
+        success: true,
+        mes,
+        totalRecebido,
+        quantidade,
+        mediaPorLancamento,
+      });
+    } catch (error: any) {
+      console.error('Erro ao buscar resumo de massoterapia:', error);
+      res.status(500).json({ error: 'Falha ao buscar resumo de massoterapia', details: error.message });
     }
   });
 

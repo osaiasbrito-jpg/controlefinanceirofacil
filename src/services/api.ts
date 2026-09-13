@@ -6,6 +6,7 @@ export interface DbSyncPayload {
   userId: string;
   salaries?: any[];
   incomes?: any[];
+  massoterapia?: any[];
   expenses?: any[];
   creditCards?: any[];
   paymentMethods?: any[];
@@ -200,5 +201,54 @@ export async function checkPostgresHealth() {
     return await res.json();
   } catch (error: any) {
     return { status: 'error', error: error.message };
+  }
+}
+
+export async function fetchMassoterapiaFromPostgres(userId: string, mes?: string, idToken?: string) {
+  try {
+    const headers: Record<string, string> = {};
+    if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
+    const params = new URLSearchParams({ userId });
+    if (mes) params.set('mes', mes);
+    const res = await resilientFetch(`/api/renda-massoterapia?${params.toString()}`, { headers });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return json.data || [];
+  } catch (error) {
+    console.warn('Aviso ao buscar massoterapia no PostgreSQL:', error);
+    return [];
+  }
+}
+
+export async function saveMassoterapiaToPostgres(item: any, userId: string, idToken?: string) {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
+    const res = await resilientFetch('/api/renda-massoterapia', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ...item, userId }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.warn('Aviso ao salvar massoterapia no PostgreSQL:', error);
+    return null;
+  }
+}
+
+export async function deleteMassoterapiaFromPostgres(id: string, userId: string, idToken?: string) {
+  try {
+    const headers: Record<string, string> = {};
+    if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
+    const res = await resilientFetch(`/api/renda-massoterapia/${encodeURIComponent(id)}?userId=${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+      headers,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.warn('Aviso ao excluir massoterapia no PostgreSQL:', error);
+    return null;
   }
 }

@@ -191,6 +191,21 @@ export async function ensureDatabaseTables() {
         "created_at" TIMESTAMP DEFAULT NOW()
       );
 
+      -- Tabela Dedicada Renda Massoterapia
+      CREATE TABLE IF NOT EXISTS "renda_massoterapia" (
+        "id" TEXT PRIMARY KEY,
+        "user_id" TEXT NOT NULL,
+        "data_lancamento" TEXT NOT NULL,
+        "valor" NUMERIC(12,2) NOT NULL,
+        "observacao" TEXT,
+        "created_at" TIMESTAMP DEFAULT NOW(),
+        "updated_at" TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS "idx_renda_massoterapia_usuario" ON "renda_massoterapia"("user_id");
+      CREATE INDEX IF NOT EXISTS "idx_renda_massoterapia_data" ON "renda_massoterapia"("data_lancamento");
+      CREATE INDEX IF NOT EXISTS "idx_renda_massoterapia_usuario_data" ON "renda_massoterapia"("user_id", "data_lancamento");
+
       -- Tabela de Renda Extra (Integração Direta Massoterapia)
       CREATE TABLE IF NOT EXISTS "renda_extra" (
         "id" TEXT PRIMARY KEY,

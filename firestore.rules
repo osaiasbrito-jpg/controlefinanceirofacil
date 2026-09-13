@@ -46,6 +46,11 @@ service cloud.firestore {
       allow read, write: if true;
     }
     
+    // Renda Massoterapia
+    match /renda_massoterapia/{recordId} {
+      allow read, write: if true;
+    }
+    
     // Expenses
     match /expenses/{expenseId} {
       allow read, write: if true;

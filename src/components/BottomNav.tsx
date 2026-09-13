@@ -217,14 +217,14 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         <button
           onClick={() => setActiveTab('receitas')}
           className={`flex flex-col items-center justify-center py-1 px-3 rounded-2xl min-w-[56px] min-h-[48px] transition-all cursor-pointer ${
-            activeTab === 'receitas' || activeTab === 'salario' || activeTab === 'renda-extra'
+            activeTab === 'receitas' || activeTab === 'salario' || activeTab === 'renda-extra' || activeTab === 'massoterapia'
               ? 'text-emerald-700 font-extrabold'
               : 'text-slate-500 hover:text-slate-800 font-medium'
           }`}
         >
           <div
             className={`p-1.5 rounded-xl transition-all ${
-              activeTab === 'receitas' || activeTab === 'salario' || activeTab === 'renda-extra'
+              activeTab === 'receitas' || activeTab === 'salario' || activeTab === 'renda-extra' || activeTab === 'massoterapia'
                 ? 'bg-emerald-100 text-emerald-700 scale-105'
                 : ''
             }`}
