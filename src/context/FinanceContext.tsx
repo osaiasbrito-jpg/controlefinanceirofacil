@@ -205,6 +205,8 @@ interface FinanceContextType {
     message: string;
   }>;
   loadSampleDemoData: () => Promise<void>;
+  seedDemoData: () => Promise<void>;
+  deleteAllDemoData: () => Promise<{ success: boolean; count: number; message: string }>;
   refreshDataFromPostgres?: () => Promise<void>;
 }
 
@@ -847,13 +849,13 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
         await syncDataToPostgres({
           userId: effectiveUserId,
-          salaries,
-          incomes,
-          massoterapia: massoterapiaIncomes,
-          expenses,
-          creditCards,
-          paymentMethods,
-          installmentPurchases,
+          salaries: salaries.filter((s) => !s.id.startsWith('demo')),
+          incomes: incomes.filter((i) => !i.id.startsWith('demo')),
+          massoterapia: massoterapiaIncomes.filter((m) => !m.id.startsWith('demo')),
+          expenses: expenses.filter((e) => !e.id.startsWith('demo') && e.id !== 'exp-1'),
+          creditCards: creditCards.filter((c) => !c.id.startsWith('demo')),
+          paymentMethods: paymentMethods.filter((p) => !p.id.startsWith('demo')),
+          installmentPurchases: installmentPurchases.filter((p) => !p.id.startsWith('demo')),
           categories,
           settings,
         }, token);
@@ -1373,6 +1375,22 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       defaultSalaryStatus: data.status !== undefined ? data.status : 'RECEIVED',
       defaultSalaryActive: data.active !== undefined ? data.active : true,
     });
+
+    // Também sincroniza o valor com registros de salário base existentes do usuário
+    const baseSalaries = salaries.filter((s) => {
+      if (s.id.startsWith('std-salary-')) return false;
+      if (s.isStandardDefault) return true;
+      const desc = (s.description || '').toLowerCase().trim();
+      return desc.includes('salário mensal') || desc.includes('salario mensal') || desc === 'salário' || desc === 'salario';
+    });
+
+    for (const s of baseSalaries) {
+      await updateSalary(s.id, {
+        amount: data.amount,
+        isStandardDefault: true,
+        ...(data.payDay ? { payDate: `${s.referenceMonth}-${String(data.payDay).padStart(2, '0')}` } : {}),
+      });
+    }
   };
 
   // Income CRUD
@@ -2836,6 +2854,88 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     seedDemoData(currentUser.uid);
   };
 
+  const deleteAllDemoData = async (): Promise<{ success: boolean; count: number; message: string }> => {
+    let deletedCount = 0;
+
+    // 1. Limpar flags de demonstração do armazenamento local
+    try {
+      localStorage.removeItem('mcf_is_demo');
+      localStorage.removeItem('mcf_demo_seeded');
+    } catch {
+      // ignore
+    }
+
+    // 2. Limpar dados fictícios em memória
+    setSalaries((prev) => {
+      const filtered = prev.filter((s) => !s.id.startsWith('demo') && !s.description?.toLowerCase().includes('teste'));
+      deletedCount += prev.length - filtered.length;
+      return filtered;
+    });
+
+    setIncomes((prev) => {
+      const filtered = prev.filter((i) => !i.id.startsWith('demo') && !i.description?.toLowerCase().includes('teste') && i.amount !== 0.01);
+      deletedCount += prev.length - filtered.length;
+      return filtered;
+    });
+
+    setMassoterapiaIncomes((prev) => {
+      const filtered = prev.filter((m) => !m.id.startsWith('demo') && !m.observacao?.toLowerCase().includes('teste') && m.valor !== 0.01);
+      deletedCount += prev.length - filtered.length;
+      return filtered;
+    });
+
+    setExpenses((prev) => {
+      const filtered = prev.filter((e) => !e.id.startsWith('demo') && e.id !== 'exp-1' && !e.description?.toLowerCase().includes('teste'));
+      deletedCount += prev.length - filtered.length;
+      return filtered;
+    });
+
+    setCreditCards((prev) => {
+      const filtered = prev.filter((c) => !c.id.startsWith('demo'));
+      deletedCount += prev.length - filtered.length;
+      return filtered;
+    });
+
+    setPaymentMethods((prev) => {
+      const filtered = prev.filter((p) => !p.id.startsWith('demo'));
+      deletedCount += prev.length - filtered.length;
+      return filtered;
+    });
+
+    setInstallmentPurchases((prev) => {
+      const filtered = prev.filter((p) => !p.id.startsWith('demo'));
+      deletedCount += prev.length - filtered.length;
+      return filtered;
+    });
+
+    // 3. Excluir documentos de teste remanescentes no Firestore
+    try {
+      const collectionsToCheck = ['expenses', 'incomes', 'salaries', 'creditCards', 'installmentPurchases', 'renda_massoterapia'];
+      for (const colName of collectionsToCheck) {
+        const snap = await getDocs(collection(db, colName));
+        for (const docSnap of snap.docs) {
+          const data = docSnap.data();
+          const desc = (data.description || data.title || data.observacao || '').toLowerCase();
+          if (docSnap.id.startsWith('demo') || docSnap.id === 'exp-1' || desc.includes('teste') || data.amount === 0.01) {
+            await deleteDoc(docSnap.ref);
+            deletedCount++;
+          }
+        }
+      }
+    } catch (fsErr) {
+      console.warn('Aviso ao limpar itens no Firestore:', fsErr);
+    }
+
+    // 4. Recarregar dados reais e limpos do PostgreSQL
+    await refreshDataFromPostgres();
+
+    return {
+      success: true,
+      count: deletedCount,
+      message: 'Todos os dados fictícios e de demonstração foram excluídos com sucesso!',
+    };
+  };
+
   return (
     <FinanceContext.Provider
       value={{
@@ -2902,6 +3002,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         importBackupData,
         importSpreadsheetData,
         loadSampleDemoData,
+        seedDemoData: loadSampleDemoData,
+        deleteAllDemoData,
         refreshDataFromPostgres,
       }}
     >

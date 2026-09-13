@@ -116,18 +116,45 @@ export const getEffectiveSalariesForMonth = (
     return defaultSalaryItem ? [defaultSalaryItem] : [];
   }
 
-  // If there are specific salary items for this month, check if one of them is already the standard/main base salary
-  const hasStandardInList = monthSalaries.some(
-    (s) => s.isStandardDefault || (s.id && s.id.startsWith('std-salary-'))
-  );
+  // If there are specific salary items for this month, check if one of them is already the base/monthly salary
+  const hasBaseSalaryInList = monthSalaries.some((s) => {
+    if (s.isStandardDefault || (s.id && s.id.startsWith('std-salary-'))) return true;
+    const desc = (s.description || '').toLowerCase().trim();
+    if (
+      desc.includes('salário mensal') ||
+      desc.includes('salario mensal') ||
+      desc.includes('salário base') ||
+      desc.includes('salario base') ||
+      desc === 'salário' ||
+      desc === 'salario'
+    ) {
+      return true;
+    }
+    // Check if it's NOT an explicit bonus/additional income
+    const isExplicitBonus =
+      desc.includes('13') ||
+      desc.includes('décimo') ||
+      desc.includes('decimo') ||
+      desc.includes('férias') ||
+      desc.includes('ferias') ||
+      desc.includes('adiantamento') ||
+      desc.includes('bônus') ||
+      desc.includes('bonus') ||
+      desc.includes('comissão') ||
+      desc.includes('comissao') ||
+      desc.includes('extra') ||
+      desc.includes('ajuste');
+    return !isExplicitBonus;
+  });
 
-  // If a standard entry is already stored in the array, or there's no settings default salary, return monthSalaries
-  if (hasStandardInList || !defaultSalaryItem) {
+  // If a base salary entry is already registered for this month, or there's no settings default salary,
+  // return monthSalaries without prepending defaultSalaryItem (prevents duplicate summing of 5.200 + 5.000)
+  if (hasBaseSalaryInList || !defaultSalaryItem) {
     return monthSalaries;
   }
 
-  // If the user added specific salary additions (like 1/3 de Férias, 13º Salário, Adiantamento, etc.)
-  // but doesn't have a stored base salary document, keep the base salary alongside the additions!
+  // Only if the month has exclusively extra bonuses (like 13º Salário or Férias) and no base salary document,
+  // keep the default base salary alongside the additions!
   return [defaultSalaryItem, ...monthSalaries];
 };
 

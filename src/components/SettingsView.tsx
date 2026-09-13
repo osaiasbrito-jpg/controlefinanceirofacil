@@ -14,6 +14,8 @@ import {
   Zap,
   CheckCircle,
   XCircle,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useFinance } from '../context/FinanceContext';
@@ -21,8 +23,10 @@ import { DatabaseTestModal, testDatabaseConnection, DbHealthResult } from './Dat
 
 export const SettingsView: React.FC = () => {
   const { currentUser, userProfile, signOut, isDemoUser, signInDemo } = useAuth();
-  const { seedDemoData } = useFinance();
+  const { seedDemoData, deleteAllDemoData } = useFinance();
   const [seeding, setSeeding] = useState(false);
+  const [deletingDemo, setDeletingDemo] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Database Connection Test State
@@ -51,6 +55,20 @@ export const SettingsView: React.FC = () => {
       console.error(err);
     } finally {
       setSeeding(false);
+    }
+  };
+
+  const handleDeleteAllDemo = async () => {
+    setDeletingDemo(true);
+    setSuccessMsg(null);
+    try {
+      const res = await deleteAllDemoData();
+      setSuccessMsg(res.message || 'Todos os dados fictícios foram excluídos com sucesso!');
+      setConfirmDelete(false);
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setDeletingDemo(false);
     }
   };
 
@@ -147,37 +165,83 @@ export const SettingsView: React.FC = () => {
         {/* Demo & Developer Helpers Card */}
         <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs p-6 flex flex-col justify-between">
           <div>
-            <h3 className="font-extrabold text-slate-900 text-base mb-4 flex items-center gap-2">
+            <h3 className="font-extrabold text-slate-900 text-base mb-2 flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-amber-500" />
-              Dados de Demonstração
+              Dados de Demonstração e Testes
             </h3>
 
             <p className="text-xs text-slate-500 leading-relaxed mb-4">
-              Gera automaticamente um conjunto completo de dados simulados (salário, rendas extras, despesas fixas, compras parceladas e cartões) para você testar todas as funcionalidades do sistema instantaneamente.
+              Gerencie registros de simulação e dados de teste. Use a exclusão para garantir que sua conta exiba apenas informações financeiras reais.
             </p>
 
-            <div className="p-4 bg-amber-50/60 border border-amber-100 rounded-2xl text-[11px] text-amber-800 mb-4">
-              <strong>Dica:</strong> Útil para visualizar os gráficos de relatórios, barras de limite de cartão e saldo do mês sem precisar preencher tudo manualmente.
-            </div>
+            {confirmDelete ? (
+              <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl text-[11px] text-rose-800 mb-4 animate-in fade-in">
+                <div className="flex items-center gap-2 font-bold mb-1 text-rose-900">
+                  <AlertTriangle className="w-4 h-4 text-rose-600" />
+                  Confirmar Exclusão de Dados Fictícios?
+                </div>
+                <p className="mb-3 text-rose-700 leading-relaxed">
+                  Esta ação excluirá todos os lançamentos de teste ('demo-*', 'TESTE', simulações) do sistema e recarregará seus registros reais do banco de dados.
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleDeleteAllDemo}
+                    disabled={deletingDemo}
+                    className="flex-1 py-2 px-3 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm disabled:opacity-50"
+                  >
+                    {deletingDemo ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5" />
+                    )}
+                    <span>Sim, Excluir Fictícios</span>
+                  </button>
+                  <button
+                    onClick={() => setConfirmDelete(false)}
+                    disabled={deletingDemo}
+                    className="py-2 px-3 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg font-bold text-xs transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 bg-amber-50/60 border border-amber-100 rounded-2xl text-[11px] text-amber-800 mb-4">
+                <strong>Dica:</strong> Se você carregou dados simulados anteriormente para testes, clique abaixo para remover todos eles com segurança.
+              </div>
+            )}
           </div>
 
-          <button
-            onClick={handleSeedData}
-            disabled={seeding}
-            className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-200 flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-          >
-            {seeding ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>Gerando registros de teste...</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4" />
-                <span>Carregar Dados de Exemplo</span>
-              </>
+          <div className="flex flex-col gap-2.5">
+            {!confirmDelete && (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                disabled={deletingDemo || seeding}
+                className="w-full py-3 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-md shadow-rose-100 flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Excluir Todos os Dados Fictícios</span>
+              </button>
             )}
-          </button>
+
+            <button
+              onClick={handleSeedData}
+              disabled={seeding || deletingDemo}
+              className="w-full py-2.5 px-4 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+            >
+              {seeding ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Gerando registros de teste...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 text-amber-500" />
+                  <span>Carregar Dados de Exemplo (Teste)</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Database Connection Diagnostic Card (Solicitado pelo Usuário) */}
