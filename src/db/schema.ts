@@ -216,13 +216,27 @@ export const rendaExtra = pgTable('renda_extra', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-// Tabela Dedicada para Renda Massoterapia
+// Tabela Dedicada para Renda Massoterapia (Integrada com Atendimentos / Terapias Pro)
 export const rendaMassoterapia = pgTable('renda_massoterapia', {
   id: text('id').primaryKey(),
   userId: text('user_id').notNull(),
-  dataLancamento: text('data_lancamento').notNull(), // YYYY-MM-DD
+  dataLancamento: text('data_lancamento'), // YYYY-MM-DD
   valor: doublePrecision('valor').notNull(),
   observacao: text('observacao'),
+  clientePaciente: text('cliente_paciente'),
+  clientName: text('client_name'),
+  procedimento: text('procedimento'),
+  tecnicas: text('tecnicas'),
+  tipo: text('tipo'),
+  tipoSessao: text('tipo_sessao'),
+  status: text('status').default('Realizado'),
+  profissional: text('profissional'),
+  mesReferencia: text('mes_referencia'),
+  referenceMonth: text('reference_month'),
+  origem: text('origem').default('Terapias Pro'),
+  dadosExtras: jsonb('dados_extras'),
+  data: text('data'),
+  date: text('date'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });

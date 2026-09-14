@@ -303,278 +303,23 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     setFilters(defaultFilters);
   }, []);
 
-  // Demo initial seed data function
-  const seedDemoData = useCallback((uid: string) => {
-    const curMonth = getCurrentMonth();
-    const prevMonth = getAdjacentMonth(curMonth, -1);
-    const nextMonth = getAdjacentMonth(curMonth, 1);
-
-    const demoCards: CreditCard[] = [
-      {
-        id: 'demo-card-1',
-        userId: uid,
-        name: 'Nubank Ultravioleta',
-        bank: 'Nubank',
-        totalLimit: 6500,
-        closingDay: 10,
-        dueDay: 17,
-        color: '#8B5CF6',
-        isActive: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: 'demo-card-2',
-        userId: uid,
-        name: 'XP Visa Infinite',
-        bank: 'XP Investimentos',
-        totalLimit: 12000,
-        closingDay: 5,
-        dueDay: 12,
-        color: '#0F172A',
-        isActive: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-    ];
-
-    const demoSalaries: Salary[] = [
-      {
-        id: 'demo-sal-1',
-        userId: uid,
-        amount: 5500,
-        referenceMonth: curMonth,
-        payDate: `${curMonth}-05`,
-        description: 'Salário Mensal - Empresa Principal',
-        status: 'RECEIVED',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: 'demo-sal-prev',
-        userId: uid,
-        amount: 5500,
-        referenceMonth: prevMonth,
-        payDate: `${prevMonth}-05`,
-        description: 'Salário Mensal',
-        status: 'RECEIVED',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-    ];
-
-    const demoIncomes: ExtraIncome[] = [
-      {
-        id: 'demo-inc-1',
-        userId: uid,
-        description: 'Rendimento de FIIs / Aluguel Fixo',
-        amount: 650,
-        referenceMonth: curMonth,
-        date: `${curMonth}-10`,
-        origin: 'Rendimento',
-        status: 'RECEIVED',
-        isRecurring: true,
-        recurrenceDay: 10,
-        notes: 'Renda mensal fixa recorrente aplicada em todos os meses',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: 'demo-inc-2',
-        userId: uid,
-        description: 'Consultoria Web / Projeto React',
-        amount: 1400,
-        referenceMonth: curMonth,
-        date: `${curMonth}-14`,
-        origin: 'Freelance',
-        status: 'RECEIVED',
-        isRecurring: false,
-        notes: 'Pagamento pontual deste mês',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: 'demo-inc-3',
-        userId: uid,
-        description: 'Venda de Equipamento Usado',
-        amount: 450,
-        referenceMonth: curMonth,
-        date: `${curMonth}-22`,
-        origin: 'Venda',
-        status: 'PENDING',
-        isRecurring: false,
-        notes: 'Comprador retirará dia 22',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-    ];
-
-    const demoInstallments: InstallmentPurchase[] = [
-      {
-        id: 'demo-inst-1',
-        userId: uid,
-        title: 'Notebook Dell Inspiron',
-        totalAmount: 3600,
-        installmentCount: 6,
-        startMonth: prevMonth,
-        cardId: 'demo-card-1',
-        categoryId: 'cat-eletronicos',
-        categoryName: 'Compras',
-        status: 'ACTIVE',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-    ];
-
-    const demoExpenses: Expense[] = [
-      {
-        id: 'demo-exp-1',
-        userId: uid,
-        description: 'Aluguel do Apartamento',
-        amount: 1650,
-        date: `${curMonth}-10`,
-        referenceMonth: curMonth,
-        categoryId: 'cat-moradia',
-        categoryName: 'Moradia',
-        paymentMethod: 'PIX',
-        status: 'PAGA',
-        notes: 'Pago via comprovante WhatsApp',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: 'demo-exp-2',
-        userId: uid,
-        description: 'Supermercado Mensal Pão de Açúcar',
-        amount: 720.5,
-        date: `${curMonth}-08`,
-        referenceMonth: curMonth,
-        categoryId: 'cat-alimentacao',
-        categoryName: 'Alimentação',
-        paymentMethod: 'CARTAO_DEBITO',
-        status: 'PAGA',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: 'demo-exp-3',
-        userId: uid,
-        description: 'Energia Elétrica (Enel)',
-        amount: 215.3,
-        date: `${curMonth}-18`,
-        referenceMonth: curMonth,
-        categoryId: 'cat-energia',
-        categoryName: 'Energia',
-        paymentMethod: 'BOLETO',
-        status: 'PENDENTE',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: 'demo-exp-4',
-        userId: uid,
-        description: 'Internet Fibra Óptica 500MB',
-        amount: 119.9,
-        date: `${curMonth}-20`,
-        referenceMonth: curMonth,
-        categoryId: 'cat-internet',
-        categoryName: 'Internet',
-        paymentMethod: 'PIX',
-        status: 'PENDENTE',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: 'demo-exp-5',
-        userId: uid,
-        description: 'Notebook Dell Inspiron (2/6)',
-        amount: 600,
-        date: `${curMonth}-10`,
-        referenceMonth: curMonth,
-        categoryId: 'cat-compras',
-        categoryName: 'Compras',
-        paymentMethod: 'CARTAO_CREDITO',
-        cardId: 'demo-card-1',
-        isInstallment: true,
-        installmentPurchaseId: 'demo-inst-1',
-        installmentNumber: 2,
-        totalInstallments: 6,
-        status: 'PENDENTE',
-        notes: 'Parcela 2 de 6 da compra "Notebook Dell Inspiron"',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: 'demo-exp-6',
-        userId: uid,
-        description: 'Notebook Dell Inspiron (3/6)',
-        amount: 600,
-        date: `${nextMonth}-10`,
-        referenceMonth: nextMonth,
-        categoryId: 'cat-compras',
-        categoryName: 'Compras',
-        paymentMethod: 'CARTAO_CREDITO',
-        cardId: 'demo-card-1',
-        isInstallment: true,
-        installmentPurchaseId: 'demo-inst-1',
-        installmentNumber: 3,
-        totalInstallments: 6,
-        status: 'PENDENTE',
-        notes: 'Parcela 3 de 6 da compra "Notebook Dell Inspiron"',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: 'demo-exp-7',
-        userId: uid,
-        description: 'Abastecimento Posto Shell',
-        amount: 240,
-        date: `${curMonth}-12`,
-        referenceMonth: curMonth,
-        categoryId: 'cat-combustivel',
-        categoryName: 'Combustível',
-        paymentMethod: 'CARTAO_CREDITO',
-        cardId: 'demo-card-1',
-        status: 'PENDENTE',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-    ];
-
-    const initialCategories: Category[] = DEFAULT_CATEGORIES.map((c, i) => ({
-      id: `default-cat-${i}`,
-      ...c,
-    }));
-
-    const demoPaymentMethods: CustomPaymentMethod[] = DEFAULT_PAYMENT_METHODS.map((pm) => ({
-      ...pm,
-      userId: uid,
-    }));
-
-    setCreditCards(demoCards);
-    setPaymentMethods(demoPaymentMethods);
-    setSalaries(demoSalaries);
-    setIncomes(demoIncomes);
-    setExpenses(demoExpenses);
-    setInstallmentPurchases(demoInstallments);
-    setCategories(initialCategories);
-    setSettings({
-      userId: uid,
-      theme: 'light',
-      currency: 'BRL',
-      alertThresholdPercentage: 80,
-      emailNotifications: true,
-      defaultSalaryAmount: 5500,
-      defaultSalaryPayDay: 5,
-      defaultSalaryDescription: 'Salário Mensal Base (Padrão)',
-      defaultSalaryStatus: 'RECEIVED',
-      defaultSalaryActive: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
+  // Limpeza preventiva de quaisquer flags ou dados de demonstração no localStorage
+  useEffect(() => {
+    try {
+      localStorage.removeItem('mcf_is_demo');
+      localStorage.removeItem('mcf_demo_seeded');
+      localStorage.removeItem('mcf_demo_data');
+    } catch {
+      // ignore
+    }
   }, []);
 
-  // Sync Firestore or demo data when user changes
+  // Geração de dados de demonstração desativada: o sistema opera exclusivamente com dados reais do banco
+  const seedDemoData = useCallback((_uid?: string) => {
+    console.info('Geração de dados fictícios desativada. Mantendo exclusivamente os dados reais do banco de dados.');
+  }, []);
+
+  // Sync Firestore and Cloud SQL when user changes
   useEffect(() => {
     if (!currentUser) {
       setSalaries([]);
@@ -586,12 +331,6 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       setInstallmentPurchases([]);
       setCategories(DEFAULT_CATEGORIES.map((c, i) => ({ id: `default-cat-${i}`, ...c })));
       setSettings(null);
-      setLoading(false);
-      return;
-    }
-
-    if (isDemoUser) {
-      seedDemoData(currentUser.uid);
       setLoading(false);
       return;
     }
@@ -695,6 +434,16 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
             valor: Number(data.valor) || 0,
             observacao: data.observacao || undefined,
             referenceMonth: refMonth,
+            clientePaciente: data.clientePaciente || data.clientName || undefined,
+            clientName: data.clientName || data.clientePaciente || undefined,
+            procedimento: data.procedimento || data.tecnicas || undefined,
+            tecnicas: data.tecnicas || data.procedimento || undefined,
+            tipo: data.tipo || data.tipoSessao || 'Sessão Avulsa',
+            tipoSessao: data.tipoSessao || data.tipo || 'Sessão Avulsa',
+            status: data.status || 'Realizado',
+            profissional: data.profissional || 'Osaias Brito',
+            origem: data.origem || 'Terapias Pro',
+            dadosExtras: data.dadosExtras || undefined,
             createdAt: data.createdAt || new Date().toISOString(),
             updatedAt: data.updatedAt || new Date().toISOString(),
           });
@@ -904,7 +653,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (Array.isArray(pgData.incomes) && pgData.incomes.length > 0) {
         setIncomes((prev) => {
           const map = new Map<string, ExtraIncome>();
-          prev.forEach((item) => map.set(item.id, item));
+          prev.filter((i) => !i.id.startsWith('demo')).forEach((item) => map.set(item.id, item));
           let hasNew = false;
           pgData.incomes.forEach((pgInc: any) => {
             const formatted: ExtraIncome = {
@@ -938,7 +687,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (Array.isArray(pgData.salaries) && pgData.salaries.length > 0) {
         setSalaries((prev) => {
           const map = new Map<string, Salary>();
-          prev.forEach((item) => map.set(item.id, item));
+          prev.filter((s) => !s.id.startsWith('demo')).forEach((item) => map.set(item.id, item));
           let hasNew = false;
           pgData.salaries.forEach((pgSal: any) => {
             const formatted: Salary = {
@@ -966,34 +715,45 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         });
       }
 
-      // 2.1. Mesclar Massoterapia do PostgreSQL
+      // 2.1. Mesclar Massoterapia do PostgreSQL (Integração com Terapias Pro)
       if (Array.isArray(pgData.massoterapia) && pgData.massoterapia.length > 0) {
         setMassoterapiaIncomes((prev) => {
           const map = new Map<string, RendaMassoterapia>();
-          prev.forEach((item) => map.set(item.id, item));
-          let hasNew = false;
+          prev.filter((m) => !m.id.startsWith('demo')).forEach((item) => map.set(item.id, item));
+          let hasChange = false;
           pgData.massoterapia.forEach((pgM: any) => {
-            const refMonth = pgM.referenceMonth || (pgM.dataLancamento ? pgM.dataLancamento.substring(0, 7) : '');
+            const refMonth = pgM.referenceMonth || pgM.mesReferencia || (pgM.dataLancamento ? pgM.dataLancamento.substring(0, 7) : '');
             const formatted: RendaMassoterapia = {
               id: String(pgM.id),
               userId: currentUser.uid || pgM.userId || 'osaiasbrito@gmail.com',
-              dataLancamento: pgM.dataLancamento || '',
-              valor: Number(pgM.valor !== undefined ? pgM.valor : pgM.amount) || 0,
-              observacao: pgM.observacao || pgM.notes || undefined,
+              dataLancamento: pgM.dataLancamento || pgM.data || pgM.date || '',
+              valor: Number(pgM.valor !== undefined ? pgM.valor : (pgM.amount !== undefined ? pgM.amount : pgM.price)) || 0,
+              observacao: pgM.observacao || pgM.notes || pgM.description || undefined,
               referenceMonth: refMonth,
+              clientePaciente: pgM.clientePaciente || pgM.clientName || undefined,
+              clientName: pgM.clientName || pgM.clientePaciente || undefined,
+              procedimento: pgM.procedimento || pgM.tecnicas || undefined,
+              tecnicas: pgM.tecnicas || pgM.procedimento || undefined,
+              tipo: pgM.tipo || pgM.tipoSessao || 'Sessão Avulsa',
+              tipoSessao: pgM.tipoSessao || pgM.tipo || 'Sessão Avulsa',
+              status: pgM.status || 'Realizado',
+              profissional: pgM.profissional || 'Osaias Brito',
+              origem: pgM.origem || 'Terapias Pro',
+              dadosExtras: pgM.dadosExtras || undefined,
               createdAt: pgM.createdAt || new Date().toISOString(),
               updatedAt: pgM.updatedAt || new Date().toISOString(),
             };
 
-            if (!map.has(formatted.id)) {
+            const existing = map.get(formatted.id);
+            if (!existing || existing.valor !== formatted.valor || existing.dataLancamento !== formatted.dataLancamento || existing.clientePaciente !== formatted.clientePaciente) {
               map.set(formatted.id, formatted);
-              hasNew = true;
+              hasChange = true;
               if (currentUser?.uid && !isDemoUser) {
                 setDoc(doc(db, 'renda_massoterapia', formatted.id), sanitizeData(formatted), { merge: true }).catch(() => {});
               }
             }
           });
-          return hasNew ? Array.from(map.values()) : prev;
+          return hasChange ? Array.from(map.values()) : prev;
         });
       }
 
@@ -1001,7 +761,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (Array.isArray(pgData.creditCards) && pgData.creditCards.length > 0) {
         setCreditCards((prev) => {
           const map = new Map<string, CreditCard>();
-          prev.forEach((c) => map.set(c.id, c));
+          prev.filter((c) => !c.id.startsWith('demo')).forEach((c) => map.set(c.id, c));
           let hasNew = false;
           pgData.creditCards.forEach((pgCard: any) => {
             const formatted: CreditCard = {
@@ -1030,7 +790,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (Array.isArray(pgData.installmentPurchases) && pgData.installmentPurchases.length > 0) {
         setInstallmentPurchases((prev) => {
           const map = new Map<string, InstallmentPurchase>();
-          prev.forEach((p) => map.set(p.id, p));
+          prev.filter((p) => !p.id.startsWith('demo')).forEach((p) => map.set(p.id, p));
           let hasNew = false;
           pgData.installmentPurchases.forEach((pgInst: any) => {
             const formatted: InstallmentPurchase = {
@@ -1064,7 +824,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (Array.isArray(pgData.expenses) && pgData.expenses.length > 0) {
         setExpenses((prev) => {
           const map = new Map<string, Expense>();
-          prev.forEach((e) => map.set(e.id, e));
+          prev.filter((e) => !e.id.startsWith('demo') && e.id !== 'exp-1').forEach((e) => map.set(e.id, e));
           let hasChange = false;
           pgData.expenses.forEach((pgExp: any) => {
             const refMonth = pgExp.referenceMonth || (pgExp.date ? pgExp.date.substring(0, 7) : '');
@@ -1140,6 +900,33 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
             }
           });
           return hasChange ? Array.from(map.values()) : prev;
+        });
+      }
+
+      // 6. Mesclar Custom Payment Methods do PostgreSQL
+      if (Array.isArray(pgData.paymentMethods) && pgData.paymentMethods.length > 0) {
+        setPaymentMethods((prev) => {
+          const map = new Map<string, CustomPaymentMethod>();
+          prev.filter((p) => !p.id.startsWith('demo')).forEach((pm) => map.set(pm.id, pm));
+          let hasNew = false;
+          pgData.paymentMethods.forEach((pgPm: any) => {
+            const formatted: CustomPaymentMethod = {
+              id: pgPm.id,
+              userId: currentUser.uid || pgPm.userId || 'osaiasbrito@gmail.com',
+              name: pgPm.name,
+              type: (pgPm.type === 'PIX' || pgPm.type === 'BOLETO' || pgPm.type === 'CARTAO_DEBITO' || pgPm.type === 'DINHEIRO') ? pgPm.type : 'OUTROS',
+              details: pgPm.details || pgPm.notes || undefined,
+              color: pgPm.color || '#475569',
+              isActive: pgPm.isActive !== false,
+              createdAt: pgPm.createdAt || new Date().toISOString(),
+              updatedAt: pgPm.updatedAt || new Date().toISOString(),
+            };
+            if (!map.has(pgPm.id)) {
+              map.set(pgPm.id, formatted);
+              hasNew = true;
+            }
+          });
+          return hasNew ? Array.from(map.values()) : prev;
         });
       }
     } catch (err) {

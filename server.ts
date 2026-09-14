@@ -200,21 +200,31 @@ async function startServer() {
   app.post('/api/renda-massoterapia', optionalAuth, async (req: AuthRequest, res) => {
     try {
       const userId = req.user?.uid || req.body?.userId || req.user?.email || 'osaiasbrito@gmail.com';
-      const { valor, dataLancamento, observacao, id } = req.body;
+      const valor = req.body?.valor !== undefined ? req.body.valor : (req.body?.amount !== undefined ? req.body.amount : req.body?.price);
+      const dataLancamento = req.body?.dataLancamento || req.body?.data || req.body?.date || new Date().toISOString().substring(0, 10);
+      const observacao = req.body?.observacao || req.body?.notes || req.body?.description || null;
+      const clientePaciente = req.body?.clientePaciente || req.body?.clientName || req.body?.cliente || req.body?.paciente || null;
+      const procedimento = req.body?.procedimento || req.body?.tecnicas || req.body?.servico || null;
+      const id = req.body?.id || req.body?.incomeId || req.body?.sessionId;
 
       if (valor === undefined || valor === null || Number(valor) <= 0) {
         return res.status(400).json({ error: 'O valor da renda de massoterapia deve ser positivo e maior que zero.' });
-      }
-
-      if (!dataLancamento) {
-        return res.status(400).json({ error: 'A data do recebimento é obrigatória.' });
       }
 
       const saved = await upsertMassoterapiaRecord(userId, {
         id,
         valor: Number(valor),
         dataLancamento,
-        observacao: observacao || null,
+        observacao,
+        clientePaciente,
+        clientName: clientePaciente,
+        procedimento,
+        tecnicas: procedimento,
+        tipo: req.body?.tipo || req.body?.tipoSessao || 'Sessão Avulsa',
+        status: req.body?.status || 'Realizado',
+        profissional: req.body?.profissional || req.body?.professional || 'Osaias Brito',
+        origem: req.body?.origem || 'Terapias Pro',
+        dadosExtras: req.body?.dadosExtras || req.body,
       });
 
       res.status(201).json({
@@ -227,6 +237,54 @@ async function startServer() {
       res.status(500).json({ error: 'Falha ao lançar renda de massoterapia', details: error.message });
     }
   });
+
+  // Webhook / Endpoint de Integração Direta com Terapias Pro / Qi Zen
+  const handleAtendimentoIntegration = async (req: AuthRequest, res: any) => {
+    try {
+      const userId = req.user?.uid || req.body?.userId || req.user?.email || 'osaiasbrito@gmail.com';
+      const body = req.body || {};
+      const valor = body.valor !== undefined ? body.valor : (body.amount !== undefined ? body.amount : (body.price || 0));
+      const dataLancamento = body.dataLancamento || body.data || body.date || new Date().toISOString().substring(0, 10);
+      const clientName = body.clientName || body.clientePaciente || body.cliente || body.paciente || 'Cliente';
+      const procedimento = body.procedimento || body.tecnicas || body.servico || 'Massoterapia';
+      const observacao = body.observacao || body.notes || body.description || `${body.tipo || 'Sessão Avulsa'} - ${procedimento} • ${clientName}`;
+      const id = body.id || body.sessionId || body.incomeId || `sessao_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+      const saved = await upsertMassoterapiaRecord(userId, {
+        id,
+        valor: Number(valor) || 0,
+        dataLancamento,
+        observacao,
+        clientePaciente: clientName,
+        clientName,
+        procedimento,
+        tecnicas: procedimento,
+        tipo: body.tipo || body.tipoSessao || 'Sessão Avulsa',
+        status: body.status || 'Realizado',
+        profissional: body.profissional || body.professional || 'Osaias Brito',
+        origem: 'Terapias Pro',
+        dadosExtras: body,
+      });
+
+      res.status(200).json({
+        status: 'SUCCESS',
+        message: 'Atendimento de massoterapia integrado automaticamente ao financeiro com sucesso.',
+        incomeId: saved.id,
+        amount: saved.valor,
+        month: saved.dataLancamento ? saved.dataLancamento.substring(0, 7) : new Date().toISOString().substring(0, 7),
+        data: saved,
+      });
+    } catch (error: any) {
+      console.error('Erro na integração de atendimento:', error);
+      res.status(500).json({ status: 'ERROR', error: error.message });
+    }
+  };
+
+  app.post('/api/renda-massoterapia/integracao', optionalAuth, handleAtendimentoIntegration);
+  app.post('/api/integrations/atendimento', optionalAuth, handleAtendimentoIntegration);
+  app.post('/api/atendimentos', optionalAuth, handleAtendimentoIntegration);
+  app.post('/api/sessoes', optionalAuth, handleAtendimentoIntegration);
+  app.post('/api/renda-extra', optionalAuth, handleAtendimentoIntegration);
 
   app.put('/api/renda-massoterapia/:id', optionalAuth, async (req: AuthRequest, res) => {
     try {

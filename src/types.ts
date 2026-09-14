@@ -123,6 +123,16 @@ export interface RendaMassoterapia {
   valor: number;
   observacao?: string;
   referenceMonth?: string; // YYYY-MM
+  clientePaciente?: string;
+  clientName?: string;
+  procedimento?: string;
+  tecnicas?: string;
+  tipo?: string;
+  tipoSessao?: string;
+  status?: string;
+  profissional?: string;
+  origem?: string;
+  dadosExtras?: any;
   createdAt?: string;
   updatedAt?: string;
 }

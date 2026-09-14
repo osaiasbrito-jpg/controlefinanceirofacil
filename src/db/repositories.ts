@@ -715,26 +715,64 @@ export async function getMassoterapiaRecords(userId: string, mesReferencia?: str
 export async function upsertMassoterapiaRecord(userId: string, item: any) {
   try {
     const id = String(item.id || `masso_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`);
-    const valor = Number(item.valor !== undefined ? item.valor : item.amount) || 0;
-    const dataLancamento = item.dataLancamento || item.date || new Date().toISOString().substring(0, 10);
-    const observacao = item.observacao || item.notes || null;
+    const valor = Number(item.valor !== undefined ? item.valor : (item.amount !== undefined ? item.amount : item.price)) || 0;
+    const dataLancamento = item.dataLancamento || item.data || item.date || new Date().toISOString().substring(0, 10);
+    const observacao = item.observacao || item.notes || item.description || null;
+    const clientePaciente = item.clientePaciente || item.clientName || item.cliente || item.paciente || null;
+    const clientName = clientePaciente;
+    const procedimento = item.procedimento || item.tecnicas || item.servico || null;
+    const tecnicas = item.tecnicas || procedimento;
+    const tipo = item.tipo || item.tipoSessao || item.sessionType || 'Sessão Avulsa';
+    const tipoSessao = tipo;
+    const status = item.status || 'Realizado';
+    const profissional = item.profissional || item.professional || 'Osaias Brito';
+    const mesReferencia = item.mesReferencia || item.referenceMonth || (dataLancamento ? dataLancamento.substring(0, 7) : new Date().toISOString().substring(0, 7));
+    const referenceMonth = mesReferencia;
+    const origem = item.origem || item.source || 'Terapias Pro';
+    const dadosExtras = item.dadosExtras || item.payload || item.metadata || null;
+
+    const valuesToInsert = {
+      id,
+      userId,
+      dataLancamento,
+      valor,
+      observacao,
+      clientePaciente,
+      clientName,
+      procedimento,
+      tecnicas,
+      tipo,
+      tipoSessao,
+      status,
+      profissional,
+      mesReferencia,
+      referenceMonth,
+      origem,
+      dadosExtras,
+      updatedAt: new Date(),
+    };
 
     const result = await db
       .insert(rendaMassoterapia)
-      .values({
-        id,
-        userId,
-        dataLancamento,
-        valor,
-        observacao,
-        updatedAt: new Date(),
-      })
+      .values(valuesToInsert)
       .onConflictDoUpdate({
         target: rendaMassoterapia.id,
         set: {
           dataLancamento,
           valor,
           observacao,
+          clientePaciente,
+          clientName,
+          procedimento,
+          tecnicas,
+          tipo,
+          tipoSessao,
+          status,
+          profissional,
+          mesReferencia,
+          referenceMonth,
+          origem,
+          dadosExtras,
           updatedAt: new Date(),
         },
       })

@@ -22,9 +22,8 @@ import { useFinance } from '../context/FinanceContext';
 import { DatabaseTestModal, testDatabaseConnection, DbHealthResult } from './DatabaseTestModal';
 
 export const SettingsView: React.FC = () => {
-  const { currentUser, userProfile, signOut, isDemoUser, signInDemo } = useAuth();
-  const { seedDemoData, deleteAllDemoData } = useFinance();
-  const [seeding, setSeeding] = useState(false);
+  const { currentUser, userProfile, signOut, isDemoUser } = useAuth();
+  const { deleteAllDemoData } = useFinance();
   const [deletingDemo, setDeletingDemo] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -42,19 +41,6 @@ export const SettingsView: React.FC = () => {
       setShowDbModal(true);
     } finally {
       setTestingDb(false);
-    }
-  };
-
-  const handleSeedData = async () => {
-    setSeeding(true);
-    setSuccessMsg(null);
-    try {
-      await seedDemoData();
-      setSuccessMsg('Dados de demonstração gerados com sucesso!');
-    } catch (err: any) {
-      console.error(err);
-    } finally {
-      setSeeding(false);
     }
   };
 
@@ -162,16 +148,16 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
-        {/* Demo & Developer Helpers Card */}
+        {/* Database Sync & Cleanup Card */}
         <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs p-6 flex flex-col justify-between">
           <div>
             <h3 className="font-extrabold text-slate-900 text-base mb-2 flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-amber-500" />
-              Dados de Demonstração e Testes
+              <Database className="w-4 h-4 text-emerald-600" />
+              Sincronização e Limpeza de Dados
             </h3>
 
             <p className="text-xs text-slate-500 leading-relaxed mb-4">
-              Gerencie registros de simulação e dados de teste. Use a exclusão para garantir que sua conta exiba apenas informações financeiras reais.
+              Garante que apenas seus dados reais do banco de dados (PostgreSQL) sejam exibidos na aplicação, eliminando quaisquer dados fictícios ou registros de demonstração remanescentes.
             </p>
 
             {confirmDelete ? (
@@ -181,7 +167,7 @@ export const SettingsView: React.FC = () => {
                   Confirmar Exclusão de Dados Fictícios?
                 </div>
                 <p className="mb-3 text-rose-700 leading-relaxed">
-                  Esta ação excluirá todos os lançamentos de teste ('demo-*', 'TESTE', simulações) do sistema e recarregará seus registros reais do banco de dados.
+                  Esta ação varre o armazenamento local e registros temporários para eliminar itens fictícios ou de teste ('demo-*', 'TESTE'), recarregando imediatamente seus registros 100% reais do banco de dados.
                 </p>
                 <div className="flex items-center gap-2">
                   <button
@@ -194,7 +180,7 @@ export const SettingsView: React.FC = () => {
                     ) : (
                       <Trash2 className="w-3.5 h-3.5" />
                     )}
-                    <span>Sim, Excluir Fictícios</span>
+                    <span>Sim, Limpar e Sincronizar</span>
                   </button>
                   <button
                     onClick={() => setConfirmDelete(false)}
@@ -206,8 +192,8 @@ export const SettingsView: React.FC = () => {
                 </div>
               </div>
             ) : (
-              <div className="p-4 bg-amber-50/60 border border-amber-100 rounded-2xl text-[11px] text-amber-800 mb-4">
-                <strong>Dica:</strong> Se você carregou dados simulados anteriormente para testes, clique abaixo para remover todos eles com segurança.
+              <div className="p-4 bg-emerald-50/60 border border-emerald-100 rounded-2xl text-[11px] text-emerald-800 mb-4">
+                <strong>Modo Dados Reais Ativo:</strong> A geração automática de dados fictícios está permanentemente desativada. O sistema opera exclusivamente com seus registros reais.
               </div>
             )}
           </div>
@@ -216,30 +202,30 @@ export const SettingsView: React.FC = () => {
             {!confirmDelete && (
               <button
                 onClick={() => setConfirmDelete(true)}
-                disabled={deletingDemo || seeding}
+                disabled={deletingDemo}
                 className="w-full py-3 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-md shadow-rose-100 flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
               >
                 <Trash2 className="w-4 h-4" />
-                <span>Excluir Todos os Dados Fictícios</span>
+                <span>Excluir Dados Fictícios & Recarregar Banco Real</span>
               </button>
             )}
 
             <button
-              onClick={handleSeedData}
-              disabled={seeding || deletingDemo}
+              onClick={async () => {
+                setDeletingDemo(true);
+                setSuccessMsg(null);
+                try {
+                  const res = await deleteAllDemoData();
+                  setSuccessMsg(res.message || 'Dados reais sincronizados com sucesso do banco!');
+                } finally {
+                  setDeletingDemo(false);
+                }
+              }}
+              disabled={deletingDemo}
               className="w-full py-2.5 px-4 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
             >
-              {seeding ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Gerando registros de teste...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4 text-amber-500" />
-                  <span>Carregar Dados de Exemplo (Teste)</span>
-                </>
-              )}
+              <RefreshCw className={`w-4 h-4 text-slate-600 ${deletingDemo ? 'animate-spin' : ''}`} />
+              <span>Forçar Sincronização com o Banco Real</span>
             </button>
           </div>
         </div>

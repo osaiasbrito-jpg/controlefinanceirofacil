@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Sparkles,
   Plus,
@@ -12,6 +12,10 @@ import {
   TrendingUp,
   Activity,
   Layers,
+  RefreshCw,
+  CheckCircle2,
+  User,
+  Clock,
 } from 'lucide-react';
 import { useFinance } from '../context/FinanceContext';
 import { RendaMassoterapia } from '../types';
@@ -25,12 +29,32 @@ export const MassoterapiaView: React.FC = () => {
     setSelectedMonth,
     effectiveMassoterapiaForMonth,
     deleteMassoterapiaIncome,
+    refreshDataFromPostgres,
   } = useFinance();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [itemToEdit, setItemToEdit] = useState<RendaMassoterapia | null>(null);
   const [itemToDelete, setItemToDelete] = useState<RendaMassoterapia | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  // Sincroniza dados com o banco ao carregar a tela
+  useEffect(() => {
+    if (refreshDataFromPostgres) {
+      refreshDataFromPostgres();
+    }
+  }, [refreshDataFromPostgres]);
+
+  const handleManualSync = async () => {
+    setIsSyncing(true);
+    try {
+      if (refreshDataFromPostgres) {
+        await refreshDataFromPostgres();
+      }
+    } finally {
+      setTimeout(() => setIsSyncing(false), 500);
+    }
+  };
 
   // Filtragem e ordenação dos lançamentos
   const filteredList = useMemo(() => {
@@ -40,6 +64,8 @@ export const MassoterapiaView: React.FC = () => {
       const q = searchQuery.trim().toLowerCase();
       list = list.filter((item) => {
         const obsMatch = item.observacao?.toLowerCase().includes(q);
+        const clientMatch = item.clientePaciente?.toLowerCase().includes(q);
+        const procMatch = item.procedimento?.toLowerCase().includes(q);
         const rawDate = (item.dataLancamento || '').toLowerCase();
         let dateBR = '';
         if (item.dataLancamento && item.dataLancamento.includes('-')) {
@@ -50,7 +76,7 @@ export const MassoterapiaView: React.FC = () => {
         }
         const dateMatch = rawDate.includes(q) || (dateBR && dateBR.includes(q));
         const valMatch = String(item.valor).includes(q);
-        return obsMatch || dateMatch || valMatch;
+        return obsMatch || clientMatch || procMatch || dateMatch || valMatch;
       });
     }
 
@@ -87,11 +113,17 @@ export const MassoterapiaView: React.FC = () => {
       {/* Header card */}
       <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <div className="flex items-center gap-2.5 mb-1">
+          <div className="flex items-center gap-2.5 mb-1 flex-wrap">
             <div className="w-9 h-9 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center font-bold shadow-xs">
               <Sparkles className="w-5 h-5" />
             </div>
             <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">Renda Massoterapia</h2>
+            
+            {/* Badge de integração automática ativa */}
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              Auto-Sync: Terapias Pro Ativo
+            </span>
           </div>
           <p className="text-xs text-slate-500">
             Controle detalhado dos atendimentos e faturamento de massoterapia referente a{' '}
@@ -101,12 +133,23 @@ export const MassoterapiaView: React.FC = () => {
 
         <div className="flex items-center gap-2.5 flex-wrap">
           <button
+            id="btn-sync-terapias-pro"
+            onClick={handleManualSync}
+            disabled={isSyncing}
+            className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+            title="Sincronizar com Terapias Pro"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-teal-600' : ''}`} />
+            <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
+          </button>
+
+          <button
             id="btn-novo-lancamento-massoterapia"
             onClick={handleOpenAdd}
             className="px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold shadow-md shadow-teal-200 flex items-center gap-2 transition-all cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            Novo Atendimento / Recebimento
+            Novo Atendimento
           </button>
         </div>
       </div>
@@ -184,7 +227,7 @@ export const MassoterapiaView: React.FC = () => {
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -208,7 +251,7 @@ export const MassoterapiaView: React.FC = () => {
             <p className="text-xs text-slate-400 max-w-sm mb-4">
               {searchQuery
                 ? 'Nenhum resultado encontrado para a busca especificada.'
-                : 'Registre os atendimentos e valores recebidos de massoterapia neste mês para acompanhar seu faturamento.'}
+                : 'Os atendimentos cadastrados no Terapias Pro entram automaticamente aqui. Você também pode lançar atendimentos manuais.'}
             </p>
             {!searchQuery && (
               <button
@@ -226,7 +269,8 @@ export const MassoterapiaView: React.FC = () => {
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50/50 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                   <th className="py-3 px-5">Data</th>
-                  <th className="py-3 px-5">Observação / Descrição</th>
+                  <th className="py-3 px-5">Cliente / Procedimento</th>
+                  <th className="py-3 px-5">Tipo & Origem</th>
                   <th className="py-3 px-5 text-right">Valor (R$)</th>
                   <th className="py-3 px-5 text-center">Ações</th>
                 </tr>
@@ -246,17 +290,48 @@ export const MassoterapiaView: React.FC = () => {
                       </div>
                     </td>
 
-                    {/* Observação */}
-                    <td className="py-3.5 px-5 font-medium text-slate-800">
-                      {item.observacao ? (
-                        <span className="break-words">{item.observacao}</span>
-                      ) : (
-                        <span className="text-slate-400 italic">Sessão de massoterapia</span>
-                      )}
+                    {/* Cliente / Procedimento / Observação */}
+                    <td className="py-3.5 px-5">
+                      <div className="flex flex-col gap-0.5">
+                        {item.clientePaciente ? (
+                          <>
+                            <div className="flex items-center gap-1.5 font-bold text-slate-900">
+                              <User className="w-3 h-3 text-teal-600 shrink-0" />
+                              <span>{item.clientePaciente}</span>
+                            </div>
+                            {item.procedimento && (
+                              <span className="text-[11px] text-teal-700 font-medium">
+                                {item.procedimento}
+                              </span>
+                            )}
+                            {item.observacao && item.observacao !== item.procedimento && (
+                              <span className="text-[11px] text-slate-400 italic">
+                                {item.observacao}
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="font-medium text-slate-800">
+                            {item.observacao || 'Sessão de massoterapia'}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* Tipo & Origem */}
+                    <td className="py-3.5 px-5 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-teal-50 text-teal-700 border border-teal-200/50">
+                          {item.tipo || 'Sessão Avulsa'}
+                        </span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-600">
+                          {item.origem || 'Terapias Pro'}
+                        </span>
+                      </div>
                     </td>
 
                     {/* Valor */}
-                    <td className="py-3.5 px-5 text-right font-black text-teal-700 whitespace-nowrap">
+                    <td className="py-3.5 px-5 text-right font-black text-teal-700 whitespace-nowrap text-sm">
                       {formatCurrency(item.valor)}
                     </td>
 

@@ -125,12 +125,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   });
 
   const [isDemoUser, setIsDemoUser] = useState<boolean>(() => {
-    return localStorage.getItem('mcf_is_demo') === 'true';
+    try {
+      localStorage.removeItem('mcf_is_demo');
+      localStorage.removeItem('mcf_demo_seeded');
+      localStorage.removeItem('mcf_demo_data');
+    } catch {
+      // ignore
+    }
+    return false;
   });
 
   const [loading, setLoading] = useState<boolean>(() => {
     // If we already have a stored session, don't block the UI with full-screen loading
-    const hasCached = !!localStorage.getItem('mcf_session_user') || localStorage.getItem('mcf_is_demo') === 'true';
+    const hasCached = !!localStorage.getItem('mcf_session_user');
     return !hasCached;
   });
 
@@ -167,7 +174,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [userProfile, isDemoUser]);
 
   useEffect(() => {
-    localStorage.setItem('mcf_is_demo', isDemoUser ? 'true' : 'false');
+    try {
+      localStorage.removeItem('mcf_is_demo');
+      localStorage.removeItem('mcf_demo_seeded');
+    } catch {
+      // ignore
+    }
   }, [isDemoUser]);
 
   // 1. Fetch / Listen to System & Gateway Settings
@@ -466,15 +478,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           try {
             const parsedUser = JSON.parse(cachedUserStr);
             const parsedProfile = JSON.parse(cachedProfileStr);
-            setCurrentUser(parsedUser);
-            setUserProfile(parsedProfile);
-          } catch {
-            if (!isDemoUser) {
+            if (parsedUser?.uid?.startsWith('demo') || parsedUser?.email?.includes('demo')) {
+              localStorage.removeItem('mcf_session_user');
+              localStorage.removeItem('mcf_session_profile');
               setCurrentUser(null);
               setUserProfile(null);
+            } else {
+              setCurrentUser(parsedUser);
+              setUserProfile(parsedProfile);
             }
+          } catch {
+            setCurrentUser(null);
+            setUserProfile(null);
           }
-        } else if (!isDemoUser) {
+        } else {
           setCurrentUser(null);
           setUserProfile(null);
         }
