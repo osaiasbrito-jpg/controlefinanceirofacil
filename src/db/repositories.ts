@@ -944,29 +944,41 @@ export async function deleteMassoterapiaRecord(userId: string, id: string) {
       ? ['osaiasbrito@gmail.com', 'super_admin_osaiasbrito', userId || 'osaiasbrito@gmail.com']
       : [userId];
 
-    // Gerar todos os IDs possíveis (com ou sem prefixos repetidos de log_)
+    // Se for teste explícito, limpa registros de teste
+    if (id === 'teste_conexao_massoterapia' || id === 'clean-tests' || id.toLowerCase().includes('teste')) {
+      await cleanAllTestRecords(userId);
+    }
+
+    // Gerar todos os IDs possíveis (com ou sem prefixos repetidos de log_, log-, etc.)
     const idSet = new Set<string>();
     idSet.add(id);
 
     let stripped = id;
-    while (stripped.startsWith('log_') || stripped.startsWith('extra_') || stripped.startsWith('sessao_')) {
-      const next = stripped.replace(/^(log_|extra_|sessao_)/, '');
+    while (
+      stripped.startsWith('log_') ||
+      stripped.startsWith('log-') ||
+      stripped.startsWith('extra_') ||
+      stripped.startsWith('sessao_')
+    ) {
+      const next = stripped.replace(/^(log_|log-|extra_|sessao_)/, '');
       if (next === stripped) break;
       stripped = next;
       idSet.add(stripped);
     }
 
     idSet.add(`log_${id}`);
+    idSet.add(`log-${id}`);
     idSet.add(`extra_${id}`);
     idSet.add(`sessao_${id}`);
     idSet.add(`log_${stripped}`);
+    idSet.add(`log-${stripped}`);
+    idSet.add(`log_log-${stripped}`);
     idSet.add(`extra_${stripped}`);
     idSet.add(`sessao_${stripped}`);
-    idSet.add(`log_log-${stripped}`);
 
     const possibleIds = Array.from(idSet);
 
-    // 1. Excluir de renda_massoterapia
+    // 1. Excluir de renda_massoterapia por correspondência de IDs
     await db
       .delete(rendaMassoterapia)
       .where(
@@ -977,6 +989,17 @@ export async function deleteMassoterapiaRecord(userId: string, id: string) {
         )
       );
 
+    // 1.1 Exclusão direta via SQL para garantir qualquer variação
+    if (stripped && stripped.length >= 4) {
+      try {
+        await db.execute(
+          sql`DELETE FROM renda_massoterapia WHERE id = ${id} OR id = ${stripped} OR id LIKE ${'%' + stripped + '%'}`
+        );
+      } catch (err) {
+        console.warn('Aviso no fallback sql de exclusão de massoterapia:', err);
+      }
+    }
+
     // 2. Limpar dos logs de integração e renda extra para garantir que daemons não reimportem
     for (const pid of possibleIds) {
       try {
@@ -984,7 +1007,7 @@ export async function deleteMassoterapiaRecord(userId: string, id: string) {
       } catch {}
       try {
         await db.execute(
-          sql`DELETE FROM system_integrations_log WHERE id = ${pid} OR payload->>'id' = ${pid} OR payload->>'sessionId' = ${pid} OR payload->>'incomeId' = ${pid}`
+          sql`DELETE FROM system_integrations_log WHERE id = ${pid} OR payload->>'id' = ${pid} OR payload->>'sessionId' = ${pid} OR payload->>'incomeId' = ${pid} OR id LIKE ${'%' + pid + '%'}`
         );
       } catch {}
       try {
@@ -1008,6 +1031,7 @@ export async function cleanAllTestRecords(userId?: string) {
          OR id ILIKE '%teste%'
          OR cliente_paciente ILIKE '%teste%'
          OR observacao ILIKE '%teste%'
+         OR procedimento ILIKE '%teste%'
          OR (dados_extras IS NOT NULL AND (dados_extras->>'isTest' = 'true' OR dados_extras->>'is_test' = 'true'));
     `);
 
@@ -1019,6 +1043,16 @@ export async function cleanAllTestRecords(userId?: string) {
          OR description ILIKE '%teste%'
          OR payload::text ILIKE '%teste%';
     `);
+
+    // 3. Remover de renda_extra se houver registros de teste
+    try {
+      await db.execute(sql`
+        DELETE FROM renda_extra
+        WHERE id ILIKE '%teste%'
+           OR cliente_paciente ILIKE '%teste%'
+           OR observacao ILIKE '%teste%';
+      `);
+    } catch {}
 
     return { success: true, message: 'Registros de teste excluídos do banco de dados com sucesso.' };
   } catch (error) {

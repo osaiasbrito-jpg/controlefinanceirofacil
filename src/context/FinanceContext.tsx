@@ -59,6 +59,8 @@ import {
   deleteEntityFromPostgres,
   loadUserDataFromPostgres,
   saveMassoterapiaToPostgres,
+  deleteMassoterapiaFromPostgres,
+  deleteMultipleMassoterapiaFromPostgres,
 } from '../services/api';
 
 // Sanitize object before sending to Firestore to avoid 'undefined' field errors
@@ -295,6 +297,35 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [filters, setFilters] = useState<ExpenseFilters>(defaultFilters);
   const isRefreshingFromPgRef = useRef<boolean>(false);
   const isSyncingToPgRef = useRef<boolean>(false);
+  const deletedRecordIdsRef = useRef<Set<string>>(new Set<string>());
+
+  const registerDeletedIds = useCallback((ids: string[]) => {
+    ids.forEach((id) => {
+      if (!id) return;
+      deletedRecordIdsRef.current.add(id);
+      let stripped = id;
+      while (
+        stripped.startsWith('log_') ||
+        stripped.startsWith('log-') ||
+        stripped.startsWith('extra_') ||
+        stripped.startsWith('sessao_')
+      ) {
+        const next = stripped.replace(/^(log_|log-|extra_|sessao_)/, '');
+        if (next === stripped) break;
+        stripped = next;
+        deletedRecordIdsRef.current.add(stripped);
+      }
+      deletedRecordIdsRef.current.add(`log_${id}`);
+      deletedRecordIdsRef.current.add(`log-${id}`);
+      deletedRecordIdsRef.current.add(`extra_${id}`);
+      deletedRecordIdsRef.current.add(`sessao_${id}`);
+      deletedRecordIdsRef.current.add(`log_${stripped}`);
+      deletedRecordIdsRef.current.add(`log-${stripped}`);
+      deletedRecordIdsRef.current.add(`log_log-${stripped}`);
+      deletedRecordIdsRef.current.add(`extra_${stripped}`);
+      deletedRecordIdsRef.current.add(`sessao_${stripped}`);
+    });
+  }, []);
 
   // Month navigation
   const goToPreviousMonth = useCallback(() => {
@@ -380,9 +411,13 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         snapshot.forEach((docSnap) => list.push({ id: docSnap.id, ...(docSnap.data() as any) }));
         setSalaries((prev) => {
           const map = new Map<string, Salary>();
-          // Preserva itens carregados do PostgreSQL
-          prev.forEach((s) => map.set(s.id, s));
-          list.forEach((s) => map.set(s.id, s));
+          // Preserva itens carregados do PostgreSQL que não foram excluídos
+          prev.forEach((s) => {
+            if (!deletedRecordIdsRef.current.has(s.id)) map.set(s.id, s);
+          });
+          list.forEach((s) => {
+            if (!deletedRecordIdsRef.current.has(s.id)) map.set(s.id, s);
+          });
           return Array.from(map.values());
         });
       },
@@ -421,9 +456,13 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
         setIncomes((prev) => {
           const map = new Map<string, ExtraIncome>();
-          // Preserva itens do PostgreSQL / receitas extras
-          prev.forEach((item) => map.set(item.id, item));
-          list.forEach((item) => map.set(item.id, item));
+          // Preserva itens do PostgreSQL / receitas extras não excluídas
+          prev.forEach((item) => {
+            if (!deletedRecordIdsRef.current.has(item.id)) map.set(item.id, item);
+          });
+          list.forEach((item) => {
+            if (!deletedRecordIdsRef.current.has(item.id)) map.set(item.id, item);
+          });
           return Array.from(map.values());
         });
       },
@@ -461,8 +500,12 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
         setMassoterapiaIncomes((prev) => {
           const map = new Map<string, RendaMassoterapia>();
-          prev.forEach((item) => map.set(item.id, item));
-          list.forEach((item) => map.set(item.id, item));
+          prev.forEach((item) => {
+            if (!deletedRecordIdsRef.current.has(item.id)) map.set(item.id, item);
+          });
+          list.forEach((item) => {
+            if (!deletedRecordIdsRef.current.has(item.id)) map.set(item.id, item);
+          });
           return Array.from(map.values());
         });
       },
@@ -655,9 +698,12 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (Array.isArray(pgData.incomes) && pgData.incomes.length > 0) {
         setIncomes((prev) => {
           const map = new Map<string, ExtraIncome>();
-          prev.filter((i) => !i.id.startsWith('demo')).forEach((item) => map.set(item.id, item));
+          prev
+            .filter((i) => !i.id.startsWith('demo') && !deletedRecordIdsRef.current.has(i.id))
+            .forEach((item) => map.set(item.id, item));
           let hasNew = false;
           pgData.incomes.forEach((pgInc: any) => {
+            if (deletedRecordIdsRef.current.has(pgInc.id)) return;
             const formatted: ExtraIncome = {
               id: pgInc.id,
               userId: currentUser.uid || pgInc.userId || 'osaiasbrito@gmail.com',
@@ -689,9 +735,12 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (Array.isArray(pgData.salaries) && pgData.salaries.length > 0) {
         setSalaries((prev) => {
           const map = new Map<string, Salary>();
-          prev.filter((s) => !s.id.startsWith('demo')).forEach((item) => map.set(item.id, item));
+          prev
+            .filter((s) => !s.id.startsWith('demo') && !deletedRecordIdsRef.current.has(s.id))
+            .forEach((item) => map.set(item.id, item));
           let hasNew = false;
           pgData.salaries.forEach((pgSal: any) => {
+            if (deletedRecordIdsRef.current.has(pgSal.id)) return;
             const formatted: Salary = {
               id: pgSal.id,
               userId: currentUser.uid || pgSal.userId || 'osaiasbrito@gmail.com',
@@ -717,16 +766,19 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         });
       }
 
-      // 2.1. Mesclar Massoterapia do PostgreSQL (Integração com Terapias Pro)
-      if (Array.isArray(pgData.massoterapia) && pgData.massoterapia.length > 0) {
+      // 2.1. Sincronizar Massoterapia do PostgreSQL (Integração com Terapias Pro)
+      if (Array.isArray(pgData.massoterapia)) {
         setMassoterapiaIncomes((prev) => {
-          const map = new Map<string, RendaMassoterapia>();
-          prev.filter((m) => !m.id.startsWith('demo')).forEach((item) => map.set(item.id, item));
-          let hasChange = false;
+          const pgItems: RendaMassoterapia[] = [];
+          const activePgIds = new Set<string>();
+
           pgData.massoterapia.forEach((pgM: any) => {
+            const idStr = String(pgM.id);
+            if (deletedRecordIdsRef.current.has(idStr)) return;
+
             const refMonth = pgM.referenceMonth || pgM.mesReferencia || (pgM.dataLancamento ? pgM.dataLancamento.substring(0, 7) : '');
             const formatted: RendaMassoterapia = {
-              id: String(pgM.id),
+              id: idStr,
               userId: currentUser.uid || pgM.userId || 'osaiasbrito@gmail.com',
               dataLancamento: pgM.dataLancamento || pgM.data || pgM.date || '',
               valor: Number(pgM.valor !== undefined ? pgM.valor : (pgM.amount !== undefined ? pgM.amount : pgM.price)) || 0,
@@ -746,16 +798,16 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
               updatedAt: pgM.updatedAt || new Date().toISOString(),
             };
 
-            const existing = map.get(formatted.id);
-            if (!existing || existing.valor !== formatted.valor || existing.dataLancamento !== formatted.dataLancamento || existing.clientePaciente !== formatted.clientePaciente) {
-              map.set(formatted.id, formatted);
-              hasChange = true;
-              if (currentUser?.uid && !isDemoUser) {
-                setDoc(doc(db, 'renda_massoterapia', formatted.id), sanitizeData(formatted), { merge: true }).catch(() => {});
-              }
-            }
+            activePgIds.add(idStr);
+            pgItems.push(formatted);
           });
-          return hasChange ? Array.from(map.values()) : prev;
+
+          // Preserva itens locais não excluídos que ainda não chegaram ao PG
+          const localOnly = prev.filter(
+            (p) => !deletedRecordIdsRef.current.has(p.id) && !activePgIds.has(p.id) && p.id.startsWith('local_')
+          );
+
+          return [...pgItems, ...localOnly];
         });
       }
 
@@ -1154,13 +1206,17 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const deleteSalary = async (id: string): Promise<void> => {
-    setSalaries((prev) => prev.filter((s) => s.id !== id));
+    registerDeletedIds([id]);
+    setSalaries((prev) => prev.filter((s) => s.id !== id && !deletedRecordIdsRef.current.has(s.id)));
     if (isDemoUser || !currentUser) return;
-    deleteEntityFromPostgres('salaries', id, currentUser.uid).catch(() => {});
+    const token = await getSafeUserToken(currentUser);
+    try {
+      await deleteEntityFromPostgres('salaries', id, currentUser.uid, token);
+    } catch {}
     try {
       await deleteDoc(doc(db, 'salaries', id));
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `salaries/${id}`);
+      console.warn('Aviso Firestore ao excluir salário:', err);
     }
   };
 
@@ -1255,13 +1311,17 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const deleteIncome = async (id: string): Promise<void> => {
-    setIncomes((prev) => prev.filter((s) => s.id !== id));
+    registerDeletedIds([id]);
+    setIncomes((prev) => prev.filter((s) => s.id !== id && !deletedRecordIdsRef.current.has(s.id)));
     if (isDemoUser || !currentUser) return;
-    deleteEntityFromPostgres('incomes', id, currentUser.uid).catch(() => {});
+    const token = await getSafeUserToken(currentUser);
+    try {
+      await deleteEntityFromPostgres('incomes', id, currentUser.uid, token);
+    } catch {}
     try {
       await deleteDoc(doc(db, 'incomes', id));
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `incomes/${id}`);
+      console.warn('Aviso Firestore ao excluir receita extra:', err);
     }
   };
 
@@ -1365,46 +1425,46 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const deleteMassoterapiaIncome = async (id: string): Promise<void> => {
-    setMassoterapiaIncomes((prev) => prev.filter((m) => m.id !== id));
+    registerDeletedIds([id]);
+    setMassoterapiaIncomes((prev) =>
+      prev.filter((m) => m.id !== id && !deletedRecordIdsRef.current.has(m.id))
+    );
 
     if (isDemoUser || !currentUser) return;
 
-    // 1. Exclui com máxima prioridade no PostgreSQL para persistência imediata
     const token = await getSafeUserToken(currentUser);
-    deleteEntityFromPostgres('renda_massoterapia', id, currentUser.uid, token).catch((e) =>
-      console.warn('Aviso ao excluir massoterapia do PostgreSQL:', e)
-    );
+    const targetUserId = currentUser.uid || 'osaiasbrito@gmail.com';
+
+    // 1. Exclui com máxima prioridade no PostgreSQL com await garantido
+    try {
+      await deleteMassoterapiaFromPostgres(id, targetUserId, token);
+    } catch (e) {
+      console.warn('Aviso ao excluir massoterapia do PostgreSQL:', e);
+    }
 
     // 2. Exclui do Firestore de forma isolada e segura
     try {
       await deleteDoc(doc(db, 'renda_massoterapia', id));
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `renda_massoterapia/${id}`);
+      console.warn('Aviso Firestore ao excluir renda_massoterapia:', err);
     }
   };
 
   const deleteMultipleMassoterapiaIncomes = async (ids: string[]): Promise<void> => {
     if (!ids || ids.length === 0) return;
-    const idSet = new Set(ids);
-    setMassoterapiaIncomes((prev) => prev.filter((m) => !idSet.has(m.id)));
+    registerDeletedIds(ids);
+    setMassoterapiaIncomes((prev) =>
+      prev.filter((m) => !deletedRecordIdsRef.current.has(m.id))
+    );
 
     if (isDemoUser || !currentUser) return;
 
     const token = await getSafeUserToken(currentUser);
+    const targetUserId = currentUser.uid || 'osaiasbrito@gmail.com';
 
-    // 1. Exclui em lote no PostgreSQL via endpoint bulk-delete
+    // 1. Exclui em lote no PostgreSQL via endpoint bulk-delete com await garantido
     try {
-      await fetch('/api/renda-massoterapia/bulk-delete', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          userId: currentUser.uid,
-          ids,
-        }),
-      });
+      await deleteMultipleMassoterapiaFromPostgres(ids, targetUserId, token);
     } catch (err) {
       console.warn('Aviso ao excluir em lote de massoterapia no PostgreSQL:', err);
     }
@@ -1590,17 +1650,20 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const deleteExpense = async (id: string): Promise<void> => {
+    registerDeletedIds([id]);
     // Immediate state update for responsive UI feedback
-    setExpenses((prev) => prev.filter((e) => e.id !== id));
+    setExpenses((prev) => prev.filter((e) => e.id !== id && !deletedRecordIdsRef.current.has(e.id)));
     if (isDemoUser || !currentUser) return;
 
-    deleteEntityFromPostgres('expenses', id, currentUser.uid).catch(() => {});
+    const token = await getSafeUserToken(currentUser);
+    try {
+      await deleteEntityFromPostgres('expenses', id, currentUser.uid, token);
+    } catch {}
 
     try {
       await deleteDoc(doc(db, 'expenses', id));
     } catch (err) {
-      console.error('Erro ao excluir despesa do Firestore:', err);
-      handleFirestoreError(err, OperationType.DELETE, 'expenses');
+      console.warn('Aviso ao excluir despesa do Firestore:', err);
     }
   };
 

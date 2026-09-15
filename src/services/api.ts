@@ -252,3 +252,20 @@ export async function deleteMassoterapiaFromPostgres(id: string, userId: string,
     return null;
   }
 }
+
+export async function deleteMultipleMassoterapiaFromPostgres(ids: string[], userId: string, idToken?: string) {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
+    const res = await resilientFetch('/api/renda-massoterapia/bulk-delete', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ userId, ids }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.warn('Aviso ao excluir múltiplos atendimentos no PostgreSQL:', error);
+    return null;
+  }
+}

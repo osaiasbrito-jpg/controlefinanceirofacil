@@ -316,14 +316,15 @@ export const MassoterapiaView: React.FC = () => {
     const idsToDelete = Array.from(selectedIds);
     if (idsToDelete.length === 0) return;
 
+    setSelectedIds(new Set());
+    setIsBulkDeleteModalOpen(false);
+
     try {
       await deleteMultipleMassoterapiaIncomes(idsToDelete);
       if (refreshDataFromPostgres) {
         await refreshDataFromPostgres();
       }
       const count = idsToDelete.length;
-      setSelectedIds(new Set());
-      setIsBulkDeleteModalOpen(false);
       setRealtimeAlert({
         text: `${count} ${count === 1 ? 'atendimento excluído' : 'atendimentos excluídos'} do banco de dados com sucesso.`,
         type: 'info',
@@ -346,11 +347,12 @@ export const MassoterapiaView: React.FC = () => {
 
   const handleConfirmDelete = async () => {
     if (itemToDelete) {
-      await deleteMassoterapiaIncome(itemToDelete.id);
+      const id = itemToDelete.id;
+      setItemToDelete(null);
+      await deleteMassoterapiaIncome(id);
       if (refreshDataFromPostgres) {
         await refreshDataFromPostgres();
       }
-      setItemToDelete(null);
       setRealtimeAlert({
         text: 'Lançamento excluído do banco de dados com sucesso.',
         type: 'info',
