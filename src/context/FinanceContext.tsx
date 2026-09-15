@@ -124,6 +124,7 @@ interface FinanceContextType {
   }) => Promise<string>;
   updateMassoterapiaIncome: (id: string, data: Partial<RendaMassoterapia>) => Promise<void>;
   deleteMassoterapiaIncome: (id: string) => Promise<void>;
+  deleteMultipleMassoterapiaIncomes: (ids: string[]) => Promise<void>;
 
   addExpense: (data: Omit<Expense, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => Promise<string>;
   updateExpense: (id: string, data: Partial<Expense>, updateAllInstallments?: boolean) => Promise<void>;
@@ -1380,6 +1381,42 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `renda_massoterapia/${id}`);
     }
+  };
+
+  const deleteMultipleMassoterapiaIncomes = async (ids: string[]): Promise<void> => {
+    if (!ids || ids.length === 0) return;
+    const idSet = new Set(ids);
+    setMassoterapiaIncomes((prev) => prev.filter((m) => !idSet.has(m.id)));
+
+    if (isDemoUser || !currentUser) return;
+
+    const token = await getSafeUserToken(currentUser);
+
+    // 1. Exclui em lote no PostgreSQL via endpoint bulk-delete
+    try {
+      await fetch('/api/renda-massoterapia/bulk-delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          userId: currentUser.uid,
+          ids,
+        }),
+      });
+    } catch (err) {
+      console.warn('Aviso ao excluir em lote de massoterapia no PostgreSQL:', err);
+    }
+
+    // 2. Exclui do Firestore de forma isolada
+    await Promise.allSettled(
+      ids.map(async (id) => {
+        try {
+          await deleteDoc(doc(db, 'renda_massoterapia', id));
+        } catch {}
+      })
+    );
   };
 
   // Expense CRUD
@@ -2813,6 +2850,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         addMassoterapiaIncome,
         updateMassoterapiaIncome,
         deleteMassoterapiaIncome,
+        deleteMultipleMassoterapiaIncomes,
         addExpense,
         updateExpense,
         deleteExpense,

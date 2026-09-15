@@ -14,6 +14,7 @@ import {
   getMassoterapiaRecords,
   upsertMassoterapiaRecord,
   deleteMassoterapiaRecord,
+  deleteMultipleMassoterapiaRecords,
   cleanAllTestRecords,
   syncIntegrationsLogToMassoterapia,
 } from './src/db/repositories';
@@ -552,6 +553,30 @@ async function startServer() {
     } catch (error: any) {
       console.error('Erro ao excluir lançamento de massoterapia:', error);
       res.status(500).json({ error: 'Falha ao excluir lançamento de massoterapia', details: error.message });
+    }
+  });
+
+  // Exclusão em Lote de Lançamentos de Massoterapia
+  app.post('/api/renda-massoterapia/bulk-delete', optionalAuth, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user?.uid || (req.body?.userId as string) || req.user?.email || 'osaiasbrito@gmail.com';
+      const { ids } = req.body;
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ error: 'Nenhum identificador fornecido para exclusão.' });
+      }
+
+      const result = await deleteMultipleMassoterapiaRecords(userId, ids);
+
+      broadcastSyncEvent('data_refreshed', { action: 'bulk_delete', count: result.count, timestamp: Date.now() });
+
+      res.json({
+        success: true,
+        message: `${result.count} lançamento(s) excluído(s) do banco de dados com sucesso.`,
+        deletedCount: result.count,
+      });
+    } catch (error: any) {
+      console.error('Erro na exclusão em lote de massoterapia:', error);
+      res.status(500).json({ error: 'Falha ao excluir atendimentos selecionados', details: error.message });
     }
   });
 

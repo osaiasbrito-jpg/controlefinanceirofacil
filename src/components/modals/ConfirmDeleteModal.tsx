@@ -16,6 +16,7 @@ export interface ConfirmDeleteModalProps {
     title?: string;
   };
   selectedCount?: number;
+  itemTypeLabel?: string;
   hasInstallmentsInSelection?: boolean;
 }
 
@@ -30,6 +31,7 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
   isInstallmentChoice,
   installmentDetails,
   selectedCount,
+  itemTypeLabel,
   hasInstallmentsInSelection,
 }) => {
   const [isDeleting, setIsDeleting] = useState(false);
@@ -138,7 +140,7 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
             <div className="p-3.5 bg-rose-50 rounded-2xl border border-rose-200 text-xs text-rose-900 flex flex-col gap-1.5">
               <div className="font-extrabold flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 text-rose-600" />
-                <span>Exclusão em Lote ({selectedCount} despesas)</span>
+                <span>Exclusão em Lote ({selectedCount} {itemTypeLabel || 'itens'})</span>
               </div>
               <span className="text-[11px] text-rose-700">
                 Os itens selecionados serão excluídos permanentemente do banco de dados.

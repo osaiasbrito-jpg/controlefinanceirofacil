@@ -1026,3 +1026,22 @@ export async function cleanAllTestRecords(userId?: string) {
     throw error;
   }
 }
+
+export async function deleteMultipleMassoterapiaRecords(userId: string, ids: string[]) {
+  if (!ids || ids.length === 0) return { success: true, count: 0 };
+  let deletedCount = 0;
+  for (const id of ids) {
+    try {
+      if (id === 'clean-tests' || id === 'teste_conexao_massoterapia') {
+        await cleanAllTestRecords(userId);
+      } else {
+        await deleteMassoterapiaRecord(userId, id);
+      }
+      deletedCount++;
+    } catch (e) {
+      console.warn(`Aviso ao excluir massoterapia #${id}:`, e);
+    }
+  }
+  return { success: true, count: deletedCount };
+}
+
