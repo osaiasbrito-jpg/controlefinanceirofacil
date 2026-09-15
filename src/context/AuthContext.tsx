@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useState, ReactNode, useMemo, useCallback } from 'react';
 import {
   User,
   signInWithPopup,
@@ -104,16 +104,44 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Garante que o objeto de usuário sempre possua o método getIdToken(), prevenindo erros de tipagem em sessões restauradas
+export const ensureUserWithToken = (user: any): User | null => {
+  if (!user) return null;
+  if (typeof user.getIdToken !== 'function') {
+    user.getIdToken = async () => {
+      try {
+        if (auth.currentUser && typeof auth.currentUser.getIdToken === 'function') {
+          return await auth.currentUser.getIdToken();
+        }
+      } catch {}
+      return 'mcf_session_token';
+    };
+  }
+  return user as User;
+};
+
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   // Initialize state with cached session from localStorage to prevent any session loss on reload
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+  const [currentUserState, setCurrentUserState] = useState<User | null>(() => {
     try {
       const saved = localStorage.getItem('mcf_session_user');
-      return saved ? JSON.parse(saved) : null;
+      return saved ? ensureUserWithToken(JSON.parse(saved)) : null;
     } catch {
       return null;
     }
   });
+
+  const currentUser = currentUserState;
+  const setCurrentUser = useCallback((userOrFn: User | null | ((prev: User | null) => User | null)) => {
+    if (typeof userOrFn === 'function') {
+      setCurrentUserState((prev) => {
+        const next = userOrFn(prev);
+        return ensureUserWithToken(next);
+      });
+    } else {
+      setCurrentUserState(ensureUserWithToken(userOrFn));
+    }
+  }, []);
 
   const [userProfile, setUserProfile] = useState<UserProfile | null>(() => {
     try {

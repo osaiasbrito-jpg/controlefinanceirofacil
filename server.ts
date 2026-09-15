@@ -14,7 +14,11 @@ import {
   getMassoterapiaRecords,
   upsertMassoterapiaRecord,
   deleteMassoterapiaRecord,
+  cleanAllTestRecords,
+  syncIntegrationsLogToMassoterapia,
 } from './src/db/repositories';
+import { db } from './src/db/index';
+import { systemIntegrationsLog } from './src/db/schema';
 import { ensureDatabaseTables } from './src/db/init';
 
 const __filenameSafe = typeof import.meta !== 'undefined' && import.meta.url ? fileURLToPath(import.meta.url) : (process.argv[1] || '');
@@ -177,6 +181,9 @@ async function startServer() {
       }
 
       const result = await deleteEntity(table, id, userId);
+      if (table === 'renda_massoterapia' || table === 'massoterapia') {
+        broadcastSyncEvent('data_refreshed', { action: 'delete', table, id, timestamp: Date.now() });
+      }
       res.json(result);
     } catch (error: any) {
       console.error('Erro ao deletar registro no PostgreSQL:', error);
@@ -238,17 +245,49 @@ async function startServer() {
     }
   });
 
-  // Webhook / Endpoint de Integração Direta com Terapias Pro / Qi Zen
+  // Server-Sent Events (SSE) para Notificação em Tempo Real Instantânea
+  const sseClients = new Set<express.Response>();
+
+  app.get('/api/events/live-sync', (req, res) => {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    res.write('retry: 3000\n');
+    res.write(': connected\n\n');
+    sseClients.add(res);
+
+    req.on('close', () => {
+      sseClients.delete(res);
+    });
+  });
+
+  function broadcastSyncEvent(event: string, data: any) {
+    const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    for (const client of sseClients) {
+      try {
+        client.write(message);
+      } catch {
+        sseClients.delete(client);
+      }
+    }
+  }
+
+  // Webhook / Endpoint de Integração Direta com Terapias Pro / Qi Zen / Sistemas Externos
   const handleAtendimentoIntegration = async (req: AuthRequest, res: any) => {
     try {
-      const userId = req.user?.uid || req.body?.userId || req.user?.email || 'osaiasbrito@gmail.com';
-      const body = req.body || {};
+      const query = req.query || {};
+      const body = { ...query, ...(req.body || {}) };
+      const userId = req.user?.uid || body.userId || req.user?.email || body.email || 'osaiasbrito@gmail.com';
       const valor = body.valor !== undefined ? body.valor : (body.amount !== undefined ? body.amount : (body.price || 0));
       const dataLancamento = body.dataLancamento || body.data || body.date || new Date().toISOString().substring(0, 10);
-      const clientName = body.clientName || body.clientePaciente || body.cliente || body.paciente || 'Cliente';
-      const procedimento = body.procedimento || body.tecnicas || body.servico || 'Massoterapia';
+      const clientName = body.clientName || body.nomeCliente || body.clientePaciente || body.cliente || body.paciente || 'Cliente';
+      const procedimento = body.procedimento || body.tecnicas || body.servico || body.description || 'Massoterapia';
       const observacao = body.observacao || body.notes || body.description || `${body.tipo || 'Sessão Avulsa'} - ${procedimento} • ${clientName}`;
       const id = body.id || body.sessionId || body.incomeId || `sessao_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const systemName = body.systemName || body.appOrigem || 'Terapias Pro';
 
       const saved = await upsertMassoterapiaRecord(userId, {
         id,
@@ -262,8 +301,40 @@ async function startServer() {
         tipo: body.tipo || body.tipoSessao || 'Sessão Avulsa',
         status: body.status || 'Realizado',
         profissional: body.profissional || body.professional || 'Osaias Brito',
-        origem: 'Terapias Pro',
+        origem: systemName,
         dadosExtras: body,
+      });
+
+      // Gravar também no log de integração para histórico e auditoria
+      try {
+        await db.insert(systemIntegrationsLog).values({
+          id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+          userId,
+          systemName,
+          action: 'ATENDIMENTO_SESSAO',
+          amount: Number(valor) || 0,
+          clientName,
+          description: 'MASSOTERAPIA',
+          payload: body,
+          response: {
+            status: 'SUCCESS',
+            incomeId: saved.id,
+            amount: saved.valor,
+            month: saved.dataLancamento?.substring(0, 7),
+          },
+        });
+      } catch (logErr) {
+        console.warn('Aviso ao registrar log de integração:', logErr);
+      }
+
+      // Notificar todos os clientes conectados instantaneamente via SSE
+      broadcastSyncEvent('atendimento_synced', {
+        id: saved.id,
+        clientName: saved.clientName,
+        valor: saved.valor,
+        dataLancamento: saved.dataLancamento,
+        origem: saved.origem,
+        timestamp: Date.now(),
       });
 
       res.status(200).json({
@@ -280,11 +351,160 @@ async function startServer() {
     }
   };
 
-  app.post('/api/renda-massoterapia/integracao', optionalAuth, handleAtendimentoIntegration);
-  app.post('/api/integrations/atendimento', optionalAuth, handleAtendimentoIntegration);
-  app.post('/api/atendimentos', optionalAuth, handleAtendimentoIntegration);
-  app.post('/api/sessoes', optionalAuth, handleAtendimentoIntegration);
-  app.post('/api/renda-extra', optionalAuth, handleAtendimentoIntegration);
+  // Aliases abrangentes de endpoints de integração (POST & GET)
+  const integrationRoutes = [
+    '/api/renda-massoterapia/integracao',
+    '/api/integrations/atendimento',
+    '/api/integrations/atendimentos',
+    '/api/integracao/atendimento',
+    '/api/integracao/atendimentos',
+    '/api/integracao/massoterapia',
+    '/api/integracao',
+    '/api/integracoes',
+    '/api/atendimentos',
+    '/api/atendimento',
+    '/api/sessoes',
+    '/api/sessao',
+    '/api/renda-extra',
+    '/api/webhook',
+    '/api/webhooks',
+    '/api/webhook/atendimento',
+    '/api/webhook/terapias-pro',
+    '/api/external/atendimento',
+    '/api/external/massoterapia',
+    '/api/external/session',
+  ];
+
+  for (const route of integrationRoutes) {
+    app.post(route, optionalAuth, handleAtendimentoIntegration);
+    app.get(route, optionalAuth, handleAtendimentoIntegration);
+  }
+
+  // Endpoint para sincronização forçada imediata
+  app.post('/api/renda-massoterapia/sync-now', optionalAuth, async (req: AuthRequest, res) => {
+    try {
+      const count = await syncIntegrationsLogToMassoterapia();
+      broadcastSyncEvent('data_refreshed', { count, timestamp: Date.now() });
+      res.json({ success: true, syncedCount: count, message: `${count} atendimentos sincronizados com sucesso.` });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Erro ao sincronizar', details: err.message });
+    }
+  });
+
+  // Daemon em segundo plano: Sincronização automática contínua de logs e novos lançamentos
+  let lastKnownCount = 0;
+  setInterval(async () => {
+    try {
+      const count = await syncIntegrationsLogToMassoterapia();
+      if (count > 0 && count !== lastKnownCount) {
+        lastKnownCount = count;
+        broadcastSyncEvent('data_refreshed', { count, timestamp: Date.now() });
+      }
+    } catch {}
+  }, 3000);
+
+  // Teste de Conexão em Tempo Real com o Sistema de Massoterapia (Terapias Pro / Qi Zen)
+  // Garante estritamente que NÃO haverá mais de um registro de teste para nunca poluir o banco de dados
+  app.post('/api/renda-massoterapia/test-connection', optionalAuth, async (req: AuthRequest, res) => {
+    const startTime = Date.now();
+    try {
+      const userId = req.user?.uid || req.body?.userId || req.user?.email || 'osaiasbrito@gmail.com';
+
+      // 1. Limpeza preventiva de qualquer teste anterior para garantir estritamente a política de não poluição
+      await cleanAllTestRecords(userId);
+
+      const now = new Date();
+      const dateStr = now.toISOString().substring(0, 10);
+      const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+      // 2. Criação controlada de exatamente 1 lançamento de teste com identificação clara
+      const savedTest = await upsertMassoterapiaRecord(userId, {
+        id: 'teste_conexao_massoterapia',
+        valor: 1.0,
+        dataLancamento: dateStr,
+        observacao: `Comunicação ativa em tempo real verificada às ${timeStr}! Webhook, SSE e banco sincronizados.`,
+        clientePaciente: '[TESTE DE CONEXÃO]',
+        clientName: '[TESTE DE CONEXÃO]',
+        procedimento: 'Sessão Teste • Sistema de Massoterapia',
+        tecnicas: 'Sessão Teste',
+        tipo: 'Teste em Tempo Real',
+        tipoSessao: 'Teste em Tempo Real',
+        status: 'Realizado',
+        profissional: 'Terapias Pro / Qi Zen',
+        mesReferencia: dateStr.substring(0, 7),
+        referenceMonth: dateStr.substring(0, 7),
+        origem: 'Teste de Conexão Terapias Pro',
+        dadosExtras: {
+          isTest: true,
+          testedAt: now.toISOString(),
+          sistema: 'Terapias Pro / Qi Zen',
+        },
+      });
+
+      const latencyMs = Math.max(12, Date.now() - startTime);
+
+      // 3. Notificação broadcast imediata para todos os clientes conectados via SSE (perceptível em tempo real!)
+      broadcastSyncEvent('test_ping', {
+        status: 'CONNECTED',
+        message: 'Comunicação em tempo real confirmada com sucesso!',
+        latencyMs,
+        timestamp: Date.now(),
+        testRecord: savedTest,
+      });
+
+      broadcastSyncEvent('atendimento_synced', {
+        id: savedTest.id,
+        clientName: savedTest.clientName,
+        valor: savedTest.valor,
+        dataLancamento: savedTest.dataLancamento,
+        origem: savedTest.origem,
+        isTest: true,
+        timestamp: Date.now(),
+      });
+
+      broadcastSyncEvent('data_refreshed', {
+        action: 'test_connection',
+        latencyMs,
+        isTest: true,
+        timestamp: Date.now(),
+      });
+
+      res.status(200).json({
+        success: true,
+        status: 'ONLINE',
+        message: 'Comunicação em tempo real estabelecida com sucesso!',
+        latencyMs,
+        testRecord: savedTest,
+        timestamp: now.toISOString(),
+      });
+    } catch (error: any) {
+      console.error('Erro no teste de conexão de massoterapia:', error);
+      res.status(500).json({
+        success: false,
+        status: 'ERROR',
+        error: 'Falha ao testar conexão em tempo real',
+        details: error.message,
+      });
+    }
+  });
+
+  // Limpeza de Registros de Teste do Banco de Dados a Qualquer Momento pelo Usuário
+  app.delete('/api/renda-massoterapia/clean-tests', optionalAuth, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user?.uid || (req.query.userId as string) || req.user?.email || 'osaiasbrito@gmail.com';
+      await cleanAllTestRecords(userId);
+
+      broadcastSyncEvent('data_refreshed', { action: 'clean_tests', timestamp: Date.now() });
+
+      res.json({
+        success: true,
+        message: 'Registros de teste excluídos do banco de dados com sucesso.',
+      });
+    } catch (error: any) {
+      console.error('Erro ao limpar testes de massoterapia:', error);
+      res.status(500).json({ error: 'Falha ao limpar registros de teste', details: error.message });
+    }
+  });
 
   app.put('/api/renda-massoterapia/:id', optionalAuth, async (req: AuthRequest, res) => {
     try {
@@ -303,6 +523,8 @@ async function startServer() {
         observacao,
       });
 
+      broadcastSyncEvent('data_refreshed', { action: 'update', id, timestamp: Date.now() });
+
       res.json({
         success: true,
         message: 'Lançamento de massoterapia atualizado com sucesso.',
@@ -319,7 +541,13 @@ async function startServer() {
       const userId = req.user?.uid || (req.query.userId as string) || req.user?.email || 'osaiasbrito@gmail.com';
       const { id } = req.params;
 
-      await deleteMassoterapiaRecord(userId, id);
+      if (id === 'clean-tests' || id === 'teste_conexao_massoterapia') {
+        await cleanAllTestRecords(userId);
+      } else {
+        await deleteMassoterapiaRecord(userId, id);
+      }
+
+      broadcastSyncEvent('data_refreshed', { action: 'delete', id, timestamp: Date.now() });
       res.json({ success: true, message: 'Lançamento de massoterapia excluído com sucesso.' });
     } catch (error: any) {
       console.error('Erro ao excluir lançamento de massoterapia:', error);

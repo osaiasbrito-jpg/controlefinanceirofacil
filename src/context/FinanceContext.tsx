@@ -266,6 +266,15 @@ const defaultFilters: ExpenseFilters = {
 
 const FinanceContext = createContext<FinanceContextType | undefined>(undefined);
 
+const getSafeUserToken = async (user: any): Promise<string | undefined> => {
+  try {
+    if (user && typeof user.getIdToken === 'function') {
+      return await user.getIdToken();
+    }
+  } catch {}
+  return undefined;
+};
+
 export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { currentUser, isDemoUser, isDataEntryBlocked } = useAuth();
   const [selectedMonth, setSelectedMonth] = useState<string>(getCurrentMonth());
@@ -584,12 +593,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (isRefreshingFromPgRef.current || isSyncingToPgRef.current) return;
       isSyncingToPgRef.current = true;
       try {
-        let token: string | undefined;
-        try {
-          token = await currentUser.getIdToken();
-        } catch {
-          // Continue without token if expired
-        }
+        const token = await getSafeUserToken(currentUser);
 
         const isOsaias =
           currentUser.email?.toLowerCase() === 'osaiasbrito@gmail.com' ||
@@ -636,10 +640,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (!currentUser || isDemoUser) return;
     isRefreshingFromPgRef.current = true;
     try {
-      let token: string | undefined;
-      try {
-        token = await currentUser.getIdToken();
-      } catch {}
+      const token = await getSafeUserToken(currentUser);
 
       const isOsaias =
         currentUser.email?.toLowerCase() === 'osaiasbrito@gmail.com' ||
@@ -938,27 +939,62 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   }, [currentUser, isDemoUser]);
 
-  // Polling periódico e escuta em tempo real do Supabase
+  // Sincronização em tempo real ultra-rápida (SSE + Polling de Alta Frequência)
   useEffect(() => {
     if (!currentUser || isDemoUser) return;
 
-    // Sincronização inicial
+    // Sincronização inicial imediata
     refreshDataFromPostgres();
 
-    // Polling a cada 45 segundos para capturar novos lançamentos externos sem sobrecarga
+    // 1. Conexão Server-Sent Events (SSE) para atualização instantânea em milissegundos
+    let eventSource: EventSource | null = null;
+    try {
+      eventSource = new EventSource('/api/events/live-sync');
+      
+      eventSource.addEventListener('atendimento_synced', () => {
+        refreshDataFromPostgres();
+      });
+
+      eventSource.addEventListener('data_refreshed', () => {
+        refreshDataFromPostgres();
+      });
+
+      eventSource.onmessage = () => {
+        refreshDataFromPostgres();
+      };
+
+      eventSource.onerror = () => {
+        // Fallback ativo se a conexão SSE oscilar
+      };
+    } catch (e) {
+      console.warn('Conexão SSE não disponível, utilizando polling dinâmico:', e);
+    }
+
+    // 2. Polling rápido de alta frequência (a cada 4 segundos) para garantia total
     const intervalId = setInterval(() => {
       refreshDataFromPostgres();
-    }, 45000);
+    }, 4000);
 
-    // Recarregar quando o usuário volta para a aba do sistema
+    // 3. Recarregar instantaneamente quando o usuário foca ou altera para a aba
     const handleFocus = () => {
       refreshDataFromPostgres();
     };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshDataFromPostgres();
+      }
+    };
+
     window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      if (eventSource) {
+        eventSource.close();
+      }
       clearInterval(intervalId);
       window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [currentUser, isDemoUser, refreshDataFromPostgres]);
 
@@ -1117,11 +1153,14 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const deleteSalary = async (id: string): Promise<void> => {
-    if (isDemoUser) {
-      setSalaries((prev) => prev.filter((s) => s.id !== id));
-      return;
+    setSalaries((prev) => prev.filter((s) => s.id !== id));
+    if (isDemoUser || !currentUser) return;
+    deleteEntityFromPostgres('salaries', id, currentUser.uid).catch(() => {});
+    try {
+      await deleteDoc(doc(db, 'salaries', id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `salaries/${id}`);
     }
-    await deleteDoc(doc(db, 'salaries', id));
   };
 
   const toggleSalaryStatus = async (id: string, currentStatus: 'RECEIVED' | 'PENDING'): Promise<void> => {
@@ -1215,11 +1254,14 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const deleteIncome = async (id: string): Promise<void> => {
-    if (isDemoUser) {
-      setIncomes((prev) => prev.filter((s) => s.id !== id));
-      return;
+    setIncomes((prev) => prev.filter((s) => s.id !== id));
+    if (isDemoUser || !currentUser) return;
+    deleteEntityFromPostgres('incomes', id, currentUser.uid).catch(() => {});
+    try {
+      await deleteDoc(doc(db, 'incomes', id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `incomes/${id}`);
     }
-    await deleteDoc(doc(db, 'incomes', id));
   };
 
   const toggleIncomeStatus = async (id: string, currentStatus: 'RECEIVED' | 'PENDING'): Promise<void> => {
@@ -1281,10 +1323,16 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       }));
 
       // Sincroniza diretamente no PostgreSQL
-      const token = await currentUser.getIdToken().catch(() => undefined);
+      const token = await getSafeUserToken(currentUser);
       saveMassoterapiaToPostgres(newItem, currentUser.uid, token).catch((e) =>
         console.warn('Aviso ao sincronizar renda massoterapia no PostgreSQL:', e)
       );
+
+      await setDoc(docRef, sanitizeData({
+        ...newItem,
+        serverCreatedAt: serverTimestamp(),
+        serverUpdatedAt: serverTimestamp(),
+      }));
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `renda_massoterapia/${newId}`);
     }
@@ -1301,14 +1349,14 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (isDemoUser || !currentUser) return;
 
     try {
+      const token = await getSafeUserToken(currentUser);
+      saveMassoterapiaToPostgres({ id, ...data }, currentUser.uid, token).catch((e) =>
+        console.warn('Aviso ao atualizar massoterapia no PostgreSQL:', e)
+      );
+
       await updateDoc(
         doc(db, 'renda_massoterapia', id),
         sanitizeData({ ...data, updatedAt: nowIso, serverUpdatedAt: serverTimestamp() })
-      );
-
-      const token = await currentUser.getIdToken().catch(() => undefined);
-      saveMassoterapiaToPostgres({ id, ...data }, currentUser.uid, token).catch((e) =>
-        console.warn('Aviso ao atualizar massoterapia no PostgreSQL:', e)
       );
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `renda_massoterapia/${id}`);
@@ -1320,12 +1368,15 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     if (isDemoUser || !currentUser) return;
 
+    // 1. Exclui com máxima prioridade no PostgreSQL para persistência imediata
+    const token = await getSafeUserToken(currentUser);
+    deleteEntityFromPostgres('renda_massoterapia', id, currentUser.uid, token).catch((e) =>
+      console.warn('Aviso ao excluir massoterapia do PostgreSQL:', e)
+    );
+
+    // 2. Exclui do Firestore de forma isolada e segura
     try {
       await deleteDoc(doc(db, 'renda_massoterapia', id));
-      const token = await currentUser.getIdToken().catch(() => undefined);
-      deleteEntityFromPostgres('renda_massoterapia', id, currentUser.uid, token).catch((e) =>
-        console.warn('Aviso ao excluir massoterapia do PostgreSQL:', e)
-      );
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `renda_massoterapia/${id}`);
     }
@@ -1504,7 +1555,9 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const deleteExpense = async (id: string): Promise<void> => {
     // Immediate state update for responsive UI feedback
     setExpenses((prev) => prev.filter((e) => e.id !== id));
-    if (isDemoUser) return;
+    if (isDemoUser || !currentUser) return;
+
+    deleteEntityFromPostgres('expenses', id, currentUser.uid).catch(() => {});
 
     try {
       await deleteDoc(doc(db, 'expenses', id));

@@ -13,6 +13,7 @@ import {
   budgets,
   backups,
   rendaExtra,
+  systemIntegrationsLog,
 } from './schema';
 import { eq, and, desc, sql, or, inArray } from 'drizzle-orm';
 import { ensureDatabaseTables } from './init';
@@ -194,6 +195,11 @@ export async function getFullUserData(userId: string, userEmail?: string) {
     const uidList = Array.from(uidsToMatch).filter(Boolean);
     const filterCondition = (column: any) =>
       uidList.length === 1 ? eq(column, uidList[0]) : inArray(column, uidList);
+
+    // Sincronizar automaticamente quaisquer logs de integração pendentes
+    try {
+      await syncIntegrationsLogToMassoterapia();
+    } catch {}
 
     const [
       userSalaries,
@@ -637,7 +643,7 @@ export async function deleteEntity(table: string, id: string, userId: string) {
         break;
       case 'renda_massoterapia':
       case 'massoterapia':
-        await db.delete(rendaMassoterapia).where(and(eq(rendaMassoterapia.id, id), eq(rendaMassoterapia.userId, userId)));
+        await deleteMassoterapiaRecord(userId, id);
         break;
       case 'credit_cards':
         await db.delete(creditCards).where(and(eq(creditCards.id, id), eq(creditCards.userId, userId)));
@@ -692,13 +698,156 @@ export async function testDatabaseConnection() {
   }
 }
 
-// Operações Dedicadas para Renda Massoterapia
+// Operações Dedicadas para Renda Massoterapia e Sincronização de Integrações
+export async function syncIntegrationsLogToMassoterapia(): Promise<number> {
+  try {
+    const logs = await db.select().from(systemIntegrationsLog);
+    if (!logs || logs.length === 0) return 0;
+    let count = 0;
+
+    for (const log of logs) {
+      const payload: any = log.payload || {};
+      const action = (log.action || '').toUpperCase();
+      const isTestLog =
+        action.includes('TESTE') ||
+        (log.clientName && log.clientName.toLowerCase().includes('teste')) ||
+        (payload.clientePaciente && String(payload.clientePaciente).toLowerCase().includes('teste')) ||
+        payload.isTest === true;
+
+      // Não reinjetar registros de teste excluídos através do daemon de sincronização em segundo plano
+      if (isTestLog) continue;
+
+      const isAtendimento =
+        action.includes('ATENDIMENTO') ||
+        action.includes('SESSAO') ||
+        action.includes('PACOTE') ||
+        action.includes('MASSOTERAPIA');
+      if (!isAtendimento) continue;
+
+      const baseLogId = log.id.startsWith('log_') ? log.id : `log_${log.id}`;
+      const id = payload.id || payload.incomeId || payload.sessionId || baseLogId;
+      const amount =
+        Number(
+          log.amount !== null && log.amount !== undefined
+            ? log.amount
+            : (payload.valor !== undefined ? payload.valor : (payload.amount !== undefined ? payload.amount : payload.price))
+        ) || 0;
+
+      const clientName =
+        log.clientName ||
+        payload.clientName ||
+        payload.nomeCliente ||
+        payload.clientePaciente ||
+        payload.cliente_paciente ||
+        'Cliente';
+
+      const rawDate =
+        payload.date ||
+        payload.data ||
+        (log.createdAt ? new Date(log.createdAt).toISOString().substring(0, 10) : new Date().toISOString().substring(0, 10));
+      const date = String(rawDate).substring(0, 10);
+
+      const procedimento =
+        payload.procedimento ||
+        payload.description ||
+        payload.tecnicas ||
+        (action.includes('PACOTE') ? 'Pacote de Sessões' : 'Massoterapia');
+
+      const tipo =
+        payload.tipo ||
+        payload.tipoSessao ||
+        (action === 'CADASTRO_PACOTE'
+          ? 'Pacote'
+          : action === 'SESSAO_PACOTE_PREPAGO'
+          ? 'Sessão de Pacote'
+          : 'Sessão Avulsa');
+
+      const status = payload.status || 'Realizado';
+      const observacao =
+        payload.notes ||
+        payload.observacao ||
+        payload.description ||
+        log.description ||
+        `${tipo} - ${procedimento} • ${clientName}`;
+
+      const profissional = payload.profissional || 'Osaias Brito';
+      const mesReferencia = payload.referenceMonth || payload.mes_referencia || date.substring(0, 7);
+      const origem = log.systemName || payload.appOrigem || 'Terapias Pro';
+
+      await upsertMassoterapiaRecord(log.userId || 'osaiasbrito@gmail.com', {
+        id,
+        valor: amount,
+        dataLancamento: date,
+        observacao,
+        clientePaciente: clientName,
+        clientName,
+        procedimento,
+        tecnicas: procedimento,
+        tipo,
+        tipoSessao: tipo,
+        status,
+        profissional,
+        mesReferencia,
+        referenceMonth: mesReferencia,
+        origem,
+        dadosExtras: payload,
+      });
+      count++;
+    }
+
+    // Sincronizar também tabela renda_extra se tiver registros
+    try {
+      const extras = await db.select().from(rendaExtra);
+      for (const ex of extras) {
+        const id = ex.id.startsWith('extra_') ? ex.id : `extra_${ex.id}`;
+        const valor = Number(ex.valor) || 0;
+        const dataLancamento = ex.data || (ex.createdAt ? new Date(ex.createdAt).toISOString().substring(0, 10) : new Date().toISOString().substring(0, 10));
+        const mesReferencia = ex.mesReferencia || dataLancamento.substring(0, 7);
+        const clientePaciente = ex.clientePaciente || 'Cliente';
+        const procedimento = ex.procedimento || ex.descricao || 'Massoterapia';
+
+        await upsertMassoterapiaRecord(ex.userId || 'osaiasbrito@gmail.com', {
+          id,
+          valor,
+          dataLancamento,
+          observacao: ex.observacao || `${ex.tipo || 'Sessão Avulsa'} - ${procedimento}`,
+          clientePaciente,
+          clientName: clientePaciente,
+          procedimento,
+          tecnicas: procedimento,
+          tipo: ex.tipo || 'Sessão Avulsa',
+          tipoSessao: ex.tipo || 'Sessão Avulsa',
+          status: 'Realizado',
+          profissional: 'Osaias Brito',
+          mesReferencia,
+          referenceMonth: mesReferencia,
+          origem: ex.origem || 'Sistema Integrado',
+          dadosExtras: ex,
+        });
+        count++;
+      }
+    } catch {}
+
+    return count;
+  } catch (err) {
+    console.warn('Aviso ao sincronizar logs de integração para renda_massoterapia:', err);
+    return 0;
+  }
+}
+
 export async function getMassoterapiaRecords(userId: string, mesReferencia?: string) {
   try {
+    const isOsaias =
+      userId?.toLowerCase().includes('osaias') ||
+      userId?.toLowerCase() === 'osaiasbrito@gmail.com';
+    const allowedUids = isOsaias
+      ? ['osaiasbrito@gmail.com', 'super_admin_osaiasbrito', userId]
+      : [userId];
+
     let query = db
       .select()
       .from(rendaMassoterapia)
-      .where(eq(rendaMassoterapia.userId, userId))
+      .where(inArray(rendaMassoterapia.userId, allowedUids))
       .orderBy(desc(rendaMassoterapia.dataLancamento));
 
     const records = await query;
@@ -787,12 +936,93 @@ export async function upsertMassoterapiaRecord(userId: string, item: any) {
 
 export async function deleteMassoterapiaRecord(userId: string, id: string) {
   try {
+    const isOsaias =
+      !userId ||
+      userId?.toLowerCase().includes('osaias') ||
+      userId?.toLowerCase() === 'osaiasbrito@gmail.com';
+    const allowedUids = isOsaias
+      ? ['osaiasbrito@gmail.com', 'super_admin_osaiasbrito', userId || 'osaiasbrito@gmail.com']
+      : [userId];
+
+    // Gerar todos os IDs possíveis (com ou sem prefixos repetidos de log_)
+    const idSet = new Set<string>();
+    idSet.add(id);
+
+    let stripped = id;
+    while (stripped.startsWith('log_') || stripped.startsWith('extra_') || stripped.startsWith('sessao_')) {
+      const next = stripped.replace(/^(log_|extra_|sessao_)/, '');
+      if (next === stripped) break;
+      stripped = next;
+      idSet.add(stripped);
+    }
+
+    idSet.add(`log_${id}`);
+    idSet.add(`extra_${id}`);
+    idSet.add(`sessao_${id}`);
+    idSet.add(`log_${stripped}`);
+    idSet.add(`extra_${stripped}`);
+    idSet.add(`sessao_${stripped}`);
+    idSet.add(`log_log-${stripped}`);
+
+    const possibleIds = Array.from(idSet);
+
+    // 1. Excluir de renda_massoterapia
     await db
       .delete(rendaMassoterapia)
-      .where(and(eq(rendaMassoterapia.id, id), eq(rendaMassoterapia.userId, userId)));
+      .where(
+        or(
+          inArray(rendaMassoterapia.id, possibleIds),
+          eq(rendaMassoterapia.id, id),
+          eq(rendaMassoterapia.id, stripped)
+        )
+      );
+
+    // 2. Limpar dos logs de integração e renda extra para garantir que daemons não reimportem
+    for (const pid of possibleIds) {
+      try {
+        await db.delete(systemIntegrationsLog).where(eq(systemIntegrationsLog.id, pid));
+      } catch {}
+      try {
+        await db.execute(
+          sql`DELETE FROM system_integrations_log WHERE id = ${pid} OR payload->>'id' = ${pid} OR payload->>'sessionId' = ${pid} OR payload->>'incomeId' = ${pid}`
+        );
+      } catch {}
+      try {
+        await db.delete(rendaExtra).where(eq(rendaExtra.id, pid));
+      } catch {}
+    }
+
     return { success: true, id };
   } catch (error) {
     console.error('Falha ao excluir registro de massoterapia:', error);
+    throw error;
+  }
+}
+
+export async function cleanAllTestRecords(userId?: string) {
+  try {
+    // 1. Remover todos os registros identificados como teste de renda_massoterapia
+    await db.execute(sql`
+      DELETE FROM renda_massoterapia
+      WHERE id = 'teste_conexao_massoterapia'
+         OR id ILIKE '%teste%'
+         OR cliente_paciente ILIKE '%teste%'
+         OR observacao ILIKE '%teste%'
+         OR (dados_extras IS NOT NULL AND (dados_extras->>'isTest' = 'true' OR dados_extras->>'is_test' = 'true'));
+    `);
+
+    // 2. Remover também de system_integrations_log para não poluir
+    await db.execute(sql`
+      DELETE FROM system_integrations_log
+      WHERE id ILIKE '%teste%'
+         OR client_name ILIKE '%teste%'
+         OR description ILIKE '%teste%'
+         OR payload::text ILIKE '%teste%';
+    `);
+
+    return { success: true, message: 'Registros de teste excluídos do banco de dados com sucesso.' };
+  } catch (error) {
+    console.error('Falha ao limpar registros de teste:', error);
     throw error;
   }
 }
