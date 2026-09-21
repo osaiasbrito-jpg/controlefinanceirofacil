@@ -22,12 +22,14 @@ import {
   WifiOff,
   ShieldCheck,
   Check,
+  Database,
 } from 'lucide-react';
 import { useFinance } from '../context/FinanceContext';
 import { RendaMassoterapia } from '../types';
 import { formatCurrency, formatDateBR, getMonthName } from '../utils/formatters';
 import { MassoterapiaModal } from './modals/MassoterapiaModal';
 import { ConfirmDeleteModal } from './modals/ConfirmDeleteModal';
+import { DatabaseSessionsModal } from './modals/DatabaseSessionsModal';
 
 export const MassoterapiaView: React.FC = () => {
   const {
@@ -38,15 +40,18 @@ export const MassoterapiaView: React.FC = () => {
     deleteMassoterapiaIncome,
     deleteMultipleMassoterapiaIncomes,
     refreshDataFromPostgres,
+    autoImportGestaoMassoterapiaSessions,
   } = useFinance();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+  const [isDatabaseModalOpen, setIsDatabaseModalOpen] = useState(false);
   const [itemToEdit, setItemToEdit] = useState<RendaMassoterapia | null>(null);
   const [itemToDelete, setItemToDelete] = useState<RendaMassoterapia | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isAutoImporting, setIsAutoImporting] = useState(false);
 
   // Estados de Teste de Conexão em Tempo Real
   const [isTestingConnection, setIsTestingConnection] = useState(false);
@@ -132,6 +137,11 @@ export const MassoterapiaView: React.FC = () => {
       refreshDataFromPostgres();
     }
 
+    // Auto-importa sessões do banco de Gestão de Pessoas ao carregar a View de Massoterapia
+    if (autoImportGestaoMassoterapiaSessions) {
+      autoImportGestaoMassoterapiaSessions().catch(() => {});
+    }
+
     const intervalId = setInterval(() => {
       if (refreshDataFromPostgres) {
         refreshDataFromPostgres();
@@ -139,7 +149,39 @@ export const MassoterapiaView: React.FC = () => {
     }, 3000);
 
     return () => clearInterval(intervalId);
-  }, [refreshDataFromPostgres]);
+  }, [refreshDataFromPostgres, autoImportGestaoMassoterapiaSessions]);
+
+  // Função para acionar importação automática das sessões de Gestão de Pessoas
+  const handleAutoImport = async () => {
+    setIsAutoImporting(true);
+    try {
+      if (autoImportGestaoMassoterapiaSessions) {
+        const res = await autoImportGestaoMassoterapiaSessions();
+        if (res && res.count > 0) {
+          setRealtimeAlert({
+            text: `${res.count} sessão(ões) avulsa(s) importada(s) automaticamente do banco de dados para o fluxo financeiro!`,
+            type: 'success',
+            timestamp: Date.now(),
+          });
+        } else {
+          setRealtimeAlert({
+            text: res?.message || 'Todas as sessões do banco de dados já estão integradas ao fluxo financeiro.',
+            type: 'info',
+            timestamp: Date.now(),
+          });
+        }
+      }
+    } catch (err: any) {
+      console.warn('Erro ao importar automaticamente sessões de massoterapia:', err);
+      setRealtimeAlert({
+        text: 'Não foi possível importar sessões do banco de dados.',
+        type: 'error',
+        timestamp: Date.now(),
+      });
+    } finally {
+      setIsAutoImporting(false);
+    }
+  };
 
   // Executa Teste de Conexão com o Sistema de Massoterapia em Tempo Real
   const handleTestConnection = async () => {
@@ -474,6 +516,29 @@ export const MassoterapiaView: React.FC = () => {
             <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
           </button>
 
+          {/* BOTÃO BUSCAR DADOS NO BANCO DE DADOS (SISTEMA DE GESTÃO DE PESSOAS - SESSÕES AVULSAS) */}
+          <button
+            id="btn-buscar-dados-banco-gestao"
+            onClick={() => setIsDatabaseModalOpen(true)}
+            className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-md shadow-indigo-100"
+            title="Buscar dados de lançamentos no banco de dados, salvo pelo Sistema de Gestão de Pessoas de Massoterapia (Sessões Avulsas - Print 01 e 02)"
+          >
+            <Database className="w-3.5 h-3.5" />
+            <span>Buscar no Banco</span>
+          </button>
+
+          {/* BOTÃO IMPORTAÇÃO AUTOMÁTICA DE SESSÕES */}
+          <button
+            id="btn-importar-automatico-massoterapia"
+            onClick={handleAutoImport}
+            disabled={isAutoImporting}
+            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-md shadow-emerald-100 disabled:opacity-50"
+            title="Importar automaticamente sessões avulsas existentes no banco de Gestão de Pessoas para o fluxo de receitas financeiras"
+          >
+            <Sparkles className={`w-3.5 h-3.5 ${isAutoImporting ? 'animate-spin' : 'text-emerald-200'}`} />
+            <span>{isAutoImporting ? 'Importando...' : 'Importar Automaticamente'}</span>
+          </button>
+
           {/* Botão Novo Atendimento */}
           <button
             id="btn-novo-lancamento-massoterapia"
@@ -483,6 +548,53 @@ export const MassoterapiaView: React.FC = () => {
             <Plus className="w-4 h-4" />
             Novo Atendimento
           </button>
+        </div>
+      </div>
+
+      {/* BANNER DE INTEGRAÇÃO COM BANCO DO SISTEMA DE GESTÃO DE PACIENTES */}
+      <div
+        id="card-integracao-gestao-massoterapia"
+        className="bg-linear-to-r from-teal-900 via-slate-900 to-indigo-950 text-white rounded-3xl p-5 sm:p-6 shadow-md border border-teal-800/40 relative overflow-hidden"
+      >
+        <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-teal-500/10 via-transparent to-transparent pointer-events-none" />
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-5 relative z-10">
+          <div className="space-y-2 max-w-2xl">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <span className="px-3 py-1 rounded-full text-[11px] font-black tracking-wide uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                Banco Compartilhado Ativo
+              </span>
+              <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-teal-500/20 text-teal-200 border border-teal-500/30">
+                Gestão de Pacientes • Supabase Unificado
+              </span>
+            </div>
+            <h3 className="text-base sm:text-lg font-bold text-white tracking-tight">
+              Sincronização Direta com o Sistema de Gestão de Pacientes
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+              Ambos os sistemas buscam e gravam os dados no mesmo banco de dados (<span className="font-mono text-teal-200 text-[11px]">db.bvggeztgmorusfkedsbj.supabase.co</span>). Quando um paciente é atendido e o valor é lançado, o valor é armazenado no banco e somado automaticamente com o salário informado!
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3 w-full md:w-auto shrink-0 flex-wrap sm:flex-nowrap">
+            <button
+              id="btn-executar-auto-import-banner"
+              onClick={handleAutoImport}
+              disabled={isAutoImporting}
+              className="w-full sm:w-auto px-4 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-2xl text-xs font-black flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg shadow-emerald-950/40 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${isAutoImporting ? 'animate-spin' : ''}`} />
+              <span>{isAutoImporting ? 'Sincronizando Banco...' : 'Sincronizar Banco Agora'}</span>
+            </button>
+            <button
+              id="btn-ver-banco-gestao-banner"
+              onClick={() => setIsDatabaseModalOpen(true)}
+              className="w-full sm:w-auto px-4 py-3 bg-white/10 hover:bg-white/15 text-white border border-white/10 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer"
+            >
+              <Database className="w-4 h-4 text-teal-300" />
+              <span>Ver Sessões no Banco</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -954,6 +1066,19 @@ export const MassoterapiaView: React.FC = () => {
                 selectedTotalAmount
               )}) do banco de dados? Esta ação não poderá ser desfeita.`
         }
+      />
+
+      {/* Modal de Busca de Lançamentos no Banco de Dados (Sistema de Gestão de Pessoas - Sessões Avulsas) */}
+      <DatabaseSessionsModal
+        isOpen={isDatabaseModalOpen}
+        onClose={() => setIsDatabaseModalOpen(false)}
+        userId={currentUser?.uid || currentUser?.email || 'osaiasbrito@gmail.com'}
+        selectedMonth={selectedMonth}
+        onSessionsImported={async () => {
+          if (refreshDataFromPostgres) {
+            await refreshDataFromPostgres();
+          }
+        }}
       />
     </div>
   );

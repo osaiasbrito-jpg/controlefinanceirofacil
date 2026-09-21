@@ -241,6 +241,26 @@ export const rendaMassoterapia = pgTable('renda_massoterapia', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
+// Tabela de Abatimentos e Adiantamentos de Pagamento
+export const abatimentos = pgTable('abatimentos', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  referenceMonth: text('reference_month').notNull(), // YYYY-MM
+  date: text('date').notNull(), // YYYY-MM-DD
+  amount: doublePrecision('amount').notNull(),
+  targetType: text('target_type').notNull().default('CREDIT_CARD'), // 'CREDIT_CARD' | 'BOLETO' | 'PIX' | 'CUSTOM_METHOD' | 'GENERAL'
+  cardId: text('card_id'),
+  cardName: text('card_name'),
+  paymentMethod: text('payment_method'),
+  paymentMethodId: text('payment_method_id'),
+  paymentMethodName: text('payment_method_name'),
+  description: text('description').notNull().default('Abatimento de Pagamento'),
+  sourceMethod: text('source_method'),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   salaries: many(salaries),
@@ -251,4 +271,5 @@ export const usersRelations = relations(users, ({ many }) => ({
   categories: many(categories),
   budgets: many(budgets),
   installmentPurchases: many(installmentPurchases),
+  abatimentos: many(abatimentos),
 }));

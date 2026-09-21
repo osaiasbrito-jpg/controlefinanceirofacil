@@ -17,6 +17,12 @@ import {
   deleteMultipleMassoterapiaRecords,
   cleanAllTestRecords,
   syncIntegrationsLogToMassoterapia,
+  fetchGestaoMassoterapiaSessionsFromDatabase,
+  importGestaoMassoterapiaSessions,
+  autoImportGestaoMassoterapiaSessions,
+  createGestaoMassoterapiaDemoSession,
+  upsertAbatimento,
+  deleteAbatimentoRecord,
 } from './src/db/repositories';
 import { db } from './src/db/index';
 import { systemIntegrationsLog } from './src/db/schema';
@@ -392,14 +398,15 @@ async function startServer() {
     }
   });
 
-  // Daemon em segundo plano: Sincronização automática contínua de logs e novos lançamentos
+  // Daemon em segundo plano: Sincronização e importação automática contínua do banco de Gestão de Pessoas
   let lastKnownCount = 0;
   setInterval(async () => {
     try {
       const count = await syncIntegrationsLogToMassoterapia();
-      if (count > 0 && count !== lastKnownCount) {
+      const autoRes = await autoImportGestaoMassoterapiaSessions('osaiasbrito@gmail.com');
+      if ((count > 0 && count !== lastKnownCount) || (autoRes && autoRes.count > 0)) {
         lastKnownCount = count;
-        broadcastSyncEvent('data_refreshed', { count, timestamp: Date.now() });
+        broadcastSyncEvent('data_refreshed', { count, autoCount: autoRes?.count || 0, timestamp: Date.now() });
       }
     } catch {}
   }, 3000);
@@ -580,6 +587,112 @@ async function startServer() {
     }
   });
 
+  // Buscar Lançamentos de Sessões no Banco de Dados (salvo pelo Sistema de Gestão de Pessoas de Massoterapia)
+  app.get('/api/renda-massoterapia/database-sessions', optionalAuth, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user?.uid || (req.query.userId as string) || req.user?.email || 'osaiasbrito@gmail.com';
+      const mesReferencia = req.query.mesReferencia as string;
+      const result = await fetchGestaoMassoterapiaSessionsFromDatabase(userId, mesReferencia);
+      res.json(result);
+    } catch (error: any) {
+      console.error('Erro ao buscar lançamentos no banco de dados:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Falha ao buscar lançamentos no banco de dados',
+        details: error.message,
+      });
+    }
+  });
+
+  // Importar / Sincronizar Sessões selecionadas para o Sistema Financeiro
+  app.post('/api/renda-massoterapia/import-database-sessions', optionalAuth, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user?.uid || req.body?.userId || req.user?.email || 'osaiasbrito@gmail.com';
+      const { sessions } = req.body;
+      if (!Array.isArray(sessions) || sessions.length === 0) {
+        return res.status(400).json({ error: 'Nenhuma sessão informada para importação.' });
+      }
+
+      const result = await importGestaoMassoterapiaSessions(userId, sessions);
+      broadcastSyncEvent('data_refreshed', { action: 'import_sessions', count: result.count, timestamp: Date.now() });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error('Erro ao importar sessões para o financeiro:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Falha ao importar lançamentos de sessões',
+        details: error.message,
+      });
+    }
+  });
+
+  // Importação Automática de Sessões Avulsas do Banco de Gestão de Pessoas para o Fluxo de Receitas Financeiras
+  app.post('/api/renda-massoterapia/auto-import', optionalAuth, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user?.uid || req.body?.userId || (req.query.userId as string) || req.user?.email || 'osaiasbrito@gmail.com';
+      const result = await autoImportGestaoMassoterapiaSessions(userId);
+
+      if (result.count > 0) {
+        broadcastSyncEvent('data_refreshed', { action: 'auto_import_sessions', count: result.count, timestamp: Date.now() });
+        broadcastSyncEvent('atendimento_synced', {
+          count: result.count,
+          totalAmount: result.totalAmount,
+          message: result.message,
+          timestamp: Date.now(),
+        });
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      console.error('Erro ao importar automaticamente do banco de gestão:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Falha na importação automática de sessões avulsas',
+        details: error.message,
+      });
+    }
+  });
+
+  app.get('/api/renda-massoterapia/auto-import', optionalAuth, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user?.uid || (req.query.userId as string) || req.user?.email || 'osaiasbrito@gmail.com';
+      const result = await autoImportGestaoMassoterapiaSessions(userId);
+
+      if (result.count > 0) {
+        broadcastSyncEvent('data_refreshed', { action: 'auto_import_sessions', count: result.count, timestamp: Date.now() });
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      console.error('Erro ao importar automaticamente do banco de gestão:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Falha na importação automática de sessões avulsas',
+        details: error.message,
+      });
+    }
+  });
+
+  // Criar / Registrar Sessão Avulsa diretamente no banco (Simulação / Teste do formulário da tela Print 02)
+  app.post('/api/renda-massoterapia/create-gestao-session', optionalAuth, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user?.uid || req.body?.userId || req.user?.email || 'osaiasbrito@gmail.com';
+      const result = await createGestaoMassoterapiaDemoSession(userId, req.body);
+
+      broadcastSyncEvent('data_refreshed', { action: 'create_gestao_session', session: result.session, timestamp: Date.now() });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error('Erro ao registrar sessão avulsa:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Falha ao registrar sessão avulsa no banco de dados',
+        details: error.message,
+      });
+    }
+  });
+
   app.get('/api/renda-massoterapia/resumo', optionalAuth, async (req: AuthRequest, res) => {
     try {
       const userId = req.user?.uid || (req.query.userId as string) || req.user?.email || 'osaiasbrito@gmail.com';
@@ -600,6 +713,66 @@ async function startServer() {
     } catch (error: any) {
       console.error('Erro ao buscar resumo de massoterapia:', error);
       res.status(500).json({ error: 'Falha ao buscar resumo de massoterapia', details: error.message });
+    }
+  });
+
+  // ==============================================================================
+  // ENDPOINTS DE ABATIMENTOS E ADIANTAMENTOS DE PAGAMENTO
+  // ==============================================================================
+  app.post('/api/abatimentos', optionalAuth, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user?.uid || req.body?.userId || req.user?.email || 'osaiasbrito@gmail.com';
+      const { amount, targetType, cardId, cardName, paymentMethod, paymentMethodId, paymentMethodName, date, referenceMonth, description, sourceMethod, notes } = req.body;
+
+      if (!amount || Number(amount) <= 0) {
+        return res.status(400).json({ error: 'O valor do abatimento deve ser maior que zero.' });
+      }
+
+      const saved = await upsertAbatimento(userId, {
+        id: req.body.id,
+        amount: Number(amount),
+        targetType: targetType || 'CREDIT_CARD',
+        cardId,
+        cardName,
+        paymentMethod,
+        paymentMethodId,
+        paymentMethodName,
+        date: date || new Date().toISOString().substring(0, 10),
+        referenceMonth: referenceMonth || (date ? date.substring(0, 7) : 'GLOBAL'),
+        description: description || 'Abatimento de Pagamento',
+        sourceMethod,
+        notes,
+      });
+
+      broadcastSyncEvent('data_refreshed', { action: 'create_abatimento', id: saved.id, timestamp: Date.now() });
+
+      res.json({
+        success: true,
+        message: 'Abatimento registrado com sucesso!',
+        data: saved,
+      });
+    } catch (error: any) {
+      console.error('Erro ao registrar abatimento no PostgreSQL:', error);
+      res.status(500).json({ error: 'Falha ao registrar abatimento no banco de dados', details: error.message });
+    }
+  });
+
+  app.delete('/api/abatimentos/:id', optionalAuth, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user?.uid || (req.query.userId as string) || req.user?.email || 'osaiasbrito@gmail.com';
+      const { id } = req.params;
+
+      const result = await deleteAbatimentoRecord(userId, id);
+      broadcastSyncEvent('data_refreshed', { action: 'delete_abatimento', id, timestamp: Date.now() });
+
+      res.json({
+        success: true,
+        message: 'Abatimento excluído com sucesso!',
+        data: result,
+      });
+    } catch (error: any) {
+      console.error('Erro ao excluir abatimento:', error);
+      res.status(500).json({ error: 'Falha ao excluir abatimento', details: error.message });
     }
   });
 

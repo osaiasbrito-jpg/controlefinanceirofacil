@@ -32,6 +32,7 @@ import {
   CustomPaymentMethod,
   PaymentMethod,
   MonthInstallmentsAndSingleSummary,
+  Abatimento,
 } from '../types';
 import { DEFAULT_CATEGORIES } from '../utils/defaultCategories';
 import {
@@ -51,6 +52,7 @@ import {
   getEffectiveSalariesForMonth,
   getEffectiveIncomesForMonth,
   getEffectiveMassoterapiaForMonth,
+  getEffectiveAbatimentosForMonth,
   calculateMonthInstallmentsAndSingleSummary,
 } from '../utils/calculations';
 import { ParsedSpreadsheetItem } from '../utils/excelParser';
@@ -61,6 +63,9 @@ import {
   saveMassoterapiaToPostgres,
   deleteMassoterapiaFromPostgres,
   deleteMultipleMassoterapiaFromPostgres,
+  autoImportDatabaseSessions,
+  saveAbatimentoToPostgres,
+  deleteAbatimentoFromPostgres,
 } from '../services/api';
 
 // Sanitize object before sending to Firestore to avoid 'undefined' field errors
@@ -93,6 +98,8 @@ interface FinanceContextType {
   installmentPurchases: InstallmentPurchase[];
   categories: Category[];
   settings: UserSettings | null;
+  abatimentos: Abatimento[];
+  effectiveAbatimentosForMonth: Abatimento[];
 
   monthSummary: MonthFinancialSummary;
   cardLimitSummaries: CardLimitSummary[];
@@ -127,6 +134,17 @@ interface FinanceContextType {
   updateMassoterapiaIncome: (id: string, data: Partial<RendaMassoterapia>) => Promise<void>;
   deleteMassoterapiaIncome: (id: string) => Promise<void>;
   deleteMultipleMassoterapiaIncomes: (ids: string[]) => Promise<void>;
+  autoImportGestaoMassoterapiaSessions?: () => Promise<{
+    success: boolean;
+    count: number;
+    totalAmount: number;
+    message: string;
+    imported?: any[];
+  }>;
+
+  // Abatimentos / Adiantamentos de Pagamento
+  addAbatimento: (data: Omit<Abatimento, 'id' | 'createdAt' | 'updatedAt'>) => Promise<string>;
+  deleteAbatimento: (id: string) => Promise<void>;
 
   addExpense: (data: Omit<Expense, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => Promise<string>;
   updateExpense: (id: string, data: Partial<Expense>, updateAllInstallments?: boolean) => Promise<void>;
@@ -291,6 +309,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [installmentPurchases, setInstallmentPurchases] = useState<InstallmentPurchase[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [settings, setSettings] = useState<UserSettings | null>(null);
+  const [abatimentos, setAbatimentos] = useState<Abatimento[]>([]);
 
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -372,6 +391,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       setInstallmentPurchases([]);
       setCategories(DEFAULT_CATEGORIES.map((c, i) => ({ id: `default-cat-${i}`, ...c })));
       setSettings(null);
+      setAbatimentos([]);
       setLoading(false);
       return;
     }
@@ -402,6 +422,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     const paymentMethodsQuery = query(collection(db, 'paymentMethods'), where('userId', 'in', [...allowedUserIds, 'default']));
     const installmentsQuery = query(collection(db, 'installmentPurchases'), where('userId', 'in', allowedUserIds));
     const categoriesQuery = query(collection(db, 'categories'), where('userId', 'in', [...allowedUserIds, 'system']));
+    const abatimentosQuery = query(collection(db, 'abatimentos'), where('userId', 'in', allowedUserIds));
     const settingsDocRef = doc(db, 'userSettings', uid);
 
     const unsubSalaries = onSnapshot(
@@ -587,6 +608,25 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       (err) => handleFirestoreError(err, OperationType.LIST, 'categories')
     );
 
+    const unsubAbatimentos = onSnapshot(
+      abatimentosQuery,
+      (snapshot) => {
+        const list: Abatimento[] = [];
+        snapshot.forEach((docSnap) => list.push({ id: docSnap.id, ...(docSnap.data() as any) }));
+        setAbatimentos((prev) => {
+          const map = new Map<string, Abatimento>();
+          prev.forEach((a) => {
+            if (!deletedRecordIdsRef.current.has(a.id)) map.set(a.id, a);
+          });
+          list.forEach((a) => {
+            if (!deletedRecordIdsRef.current.has(a.id)) map.set(a.id, a);
+          });
+          return Array.from(map.values());
+        });
+      },
+      (err) => handleFirestoreError(err, OperationType.LIST, 'abatimentos')
+    );
+
     const unsubSettings = onSnapshot(
       settingsDocRef,
       (docSnap) => {
@@ -624,6 +664,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       unsubPaymentMethods();
       unsubInstallments();
       unsubCategories();
+      unsubAbatimentos();
       unsubSettings();
     };
   }, [currentUser, isDemoUser, seedDemoData]);
@@ -653,6 +694,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
           creditCards: creditCards.filter((c) => !c.id.startsWith('demo')),
           paymentMethods: paymentMethods.filter((p) => !p.id.startsWith('demo')),
           installmentPurchases: installmentPurchases.filter((p) => !p.id.startsWith('demo')),
+          abatimentos: abatimentos.filter((a) => !a.id.startsWith('demo')),
           categories,
           settings,
         }, token);
@@ -675,6 +717,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     creditCards,
     paymentMethods,
     installmentPurchases,
+    abatimentos,
     categories,
     settings,
   ]);
@@ -983,6 +1026,45 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
           return hasNew ? Array.from(map.values()) : prev;
         });
       }
+
+      // 7. Mesclar Abatimentos do PostgreSQL
+      if (Array.isArray(pgData.abatimentos) && pgData.abatimentos.length > 0) {
+        setAbatimentos((prev) => {
+          const map = new Map<string, Abatimento>();
+          prev.filter((a) => !a.id.startsWith('demo') && !deletedRecordIdsRef.current.has(a.id)).forEach((a) => map.set(a.id, a));
+          let hasNew = false;
+          pgData.abatimentos.forEach((pgAb: any) => {
+            if (deletedRecordIdsRef.current.has(pgAb.id)) return;
+            const refMonth = pgAb.referenceMonth || (pgAb.date ? pgAb.date.substring(0, 7) : '');
+            const formatted: Abatimento = {
+              id: pgAb.id,
+              userId: currentUser.uid || pgAb.userId || 'osaiasbrito@gmail.com',
+              referenceMonth: refMonth,
+              date: pgAb.date || `${refMonth}-01`,
+              amount: Number(pgAb.amount) || 0,
+              targetType: pgAb.targetType || 'CREDIT_CARD',
+              cardId: pgAb.cardId || undefined,
+              cardName: pgAb.cardName || undefined,
+              paymentMethod: pgAb.paymentMethod || undefined,
+              paymentMethodId: pgAb.paymentMethodId || undefined,
+              paymentMethodName: pgAb.paymentMethodName || undefined,
+              description: pgAb.description || 'Abatimento de Pagamento',
+              sourceMethod: pgAb.sourceMethod || undefined,
+              notes: pgAb.notes || '',
+              createdAt: pgAb.createdAt || new Date().toISOString(),
+              updatedAt: pgAb.updatedAt || new Date().toISOString(),
+            };
+            if (!map.has(pgAb.id)) {
+              map.set(pgAb.id, formatted);
+              hasNew = true;
+              if (currentUser?.uid && !isDemoUser) {
+                setDoc(doc(db, 'abatimentos', formatted.id), sanitizeData(formatted), { merge: true }).catch(() => {});
+              }
+            }
+          });
+          return hasNew ? Array.from(map.values()) : prev;
+        });
+      }
     } catch (err) {
       console.warn('Aviso ao sincronizar dados externos do PostgreSQL:', err);
     } finally {
@@ -1066,7 +1148,12 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     return getEffectiveMassoterapiaForMonth(selectedMonth, massoterapiaIncomes);
   }, [selectedMonth, massoterapiaIncomes]);
 
-  // Financial summary for selected month (inclui Salário Fixo + Renda Massoterapia + Renda Extra)
+  // Effective abatimentos for selected month
+  const effectiveAbatimentosForMonth = useMemo(() => {
+    return getEffectiveAbatimentosForMonth(selectedMonth, abatimentos);
+  }, [selectedMonth, abatimentos]);
+
+  // Financial summary for selected month (inclui Salário Fixo + Renda Massoterapia + Renda Extra - Abatimentos)
   const monthSummary = useMemo(() => {
     return calculateMonthSummary(
       selectedMonth,
@@ -1074,21 +1161,22 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       incomes,
       expenses,
       settings,
-      massoterapiaIncomes
+      massoterapiaIncomes,
+      abatimentos
     );
-  }, [selectedMonth, salaries, incomes, expenses, settings, massoterapiaIncomes]);
+  }, [selectedMonth, salaries, incomes, expenses, settings, massoterapiaIncomes, abatimentos]);
 
   // Installments & Single expenses summary for selected month
   const monthInstallmentsAndSingleSummary = useMemo(() => {
     return calculateMonthInstallmentsAndSingleSummary(selectedMonth, expenses, installmentPurchases);
   }, [selectedMonth, expenses, installmentPurchases]);
 
-  // Credit cards summary
+  // Credit cards summary (com abatimentos deduzidos da fatura)
   const cardLimitSummaries = useMemo(() => {
     return creditCards.map((card) =>
-      calculateCardLimit(card, expenses, selectedMonth, installmentPurchases, creditCards)
+      calculateCardLimit(card, expenses, selectedMonth, installmentPurchases, creditCards, abatimentos)
     );
-  }, [creditCards, expenses, selectedMonth, installmentPurchases]);
+  }, [creditCards, expenses, selectedMonth, installmentPurchases, abatimentos]);
 
   // Filtered expenses
   const filteredExpenses = useMemo(() => {
@@ -1477,6 +1565,126 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         } catch {}
       })
     );
+  };
+
+  // Função para importar automaticamente os lançamentos de sessões avulsas existentes no banco de Gestão de Pessoas para o fluxo de receitas financeiras
+  const autoImportGestaoMassoterapiaSessions = async () => {
+    if (!currentUser || isDemoUser) {
+      return {
+        success: true,
+        count: 0,
+        totalAmount: 0,
+        message: 'Modo de demonstração',
+        imported: [],
+      };
+    }
+    try {
+      const token = await getSafeUserToken(currentUser);
+      const isOsaias =
+        currentUser.email?.toLowerCase() === 'osaiasbrito@gmail.com' ||
+        currentUser.uid?.toLowerCase().includes('osaias');
+      const targetUserId = isOsaias ? 'osaiasbrito@gmail.com' : (currentUser.uid || 'osaiasbrito@gmail.com');
+
+      const result = await autoImportDatabaseSessions(targetUserId, token);
+
+      // Sincronizar os dados do PostgreSQL para o estado React e Firestore
+      await refreshDataFromPostgres();
+
+      return {
+        success: result.success !== false,
+        count: result.count || 0,
+        totalAmount: result.totalAmount || 0,
+        message: result.message || `${result.count || 0} lançamento(s) sincronizado(s) com sucesso.`,
+        imported: result.imported || [],
+      };
+    } catch (error: any) {
+      console.warn('Aviso ao importar automaticamente sessões de massoterapia:', error);
+      return {
+        success: false,
+        count: 0,
+        totalAmount: 0,
+        message: error.message || 'Falha ao importar sessões do banco de dados.',
+        imported: [],
+      };
+    }
+  };
+
+  // Abatimentos / Adiantamentos CRUD
+  const addAbatimento = async (data: Omit<Abatimento, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> => {
+    if (!currentUser) throw new Error('Usuário não autenticado');
+    if (isDataEntryBlocked) {
+      throw new Error('Seu período de teste expirou. Efetue o pagamento da taxa para liberar novos lançamentos.');
+    }
+    const nowIso = new Date().toISOString();
+    const refMonth = data.referenceMonth || (data.date ? data.date.substring(0, 7) : selectedMonth);
+    const targetUserId = currentUser.uid || 'osaiasbrito@gmail.com';
+
+    if (isDemoUser) {
+      const newId = `demo-abat-${Date.now()}`;
+      const newItem: Abatimento = {
+        ...data,
+        id: newId,
+        userId: targetUserId,
+        referenceMonth: refMonth,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      setAbatimentos((prev) => [newItem, ...prev]);
+      return newId;
+    }
+
+    const docRef = doc(collection(db, 'abatimentos'));
+    const newId = docRef.id;
+    const newItem: Abatimento = {
+      ...data,
+      id: newId,
+      userId: targetUserId,
+      referenceMonth: refMonth,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+
+    // Atualização otimista imediata no estado local
+    setAbatimentos((prev) => [newItem, ...prev.filter((a) => a.id !== newId)]);
+
+    try {
+      await setDoc(docRef, sanitizeData({
+        ...newItem,
+        serverCreatedAt: serverTimestamp(),
+        serverUpdatedAt: serverTimestamp(),
+      }));
+
+      const token = await getSafeUserToken(currentUser);
+      saveAbatimentoToPostgres(newItem, targetUserId, token).catch((e) =>
+        console.warn('Aviso ao sincronizar abatimento no PostgreSQL:', e)
+      );
+    } catch (err) {
+      console.warn('Aviso ao salvar abatimento no Firestore:', err);
+    }
+
+    return newId;
+  };
+
+  const deleteAbatimento = async (id: string): Promise<void> => {
+    registerDeletedIds([id]);
+    setAbatimentos((prev) => prev.filter((a) => a.id !== id && !deletedRecordIdsRef.current.has(a.id)));
+
+    if (isDemoUser || !currentUser) return;
+
+    const token = await getSafeUserToken(currentUser);
+    const targetUserId = currentUser.uid || 'osaiasbrito@gmail.com';
+
+    try {
+      await deleteAbatimentoFromPostgres(id, targetUserId, token);
+    } catch (e) {
+      console.warn('Aviso ao excluir abatimento do PostgreSQL:', e);
+    }
+
+    try {
+      await deleteDoc(doc(db, 'abatimentos', id));
+    } catch (err) {
+      console.warn('Aviso Firestore ao excluir abatimento:', err);
+    }
   };
 
   // Expense CRUD
@@ -2896,6 +3104,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         installmentPurchases,
         categories,
         settings,
+        abatimentos,
+        effectiveAbatimentosForMonth,
         monthSummary,
         cardLimitSummaries,
         monthInstallmentsAndSingleSummary,
@@ -2914,6 +3124,9 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         updateMassoterapiaIncome,
         deleteMassoterapiaIncome,
         deleteMultipleMassoterapiaIncomes,
+        autoImportGestaoMassoterapiaSessions,
+        addAbatimento,
+        deleteAbatimento,
         addExpense,
         updateExpense,
         deleteExpense,

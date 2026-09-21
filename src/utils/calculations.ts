@@ -14,9 +14,17 @@ import {
   InstallmentPurchase,
   MonthInstallmentsAndSingleSummary,
   PaymentMethod,
+  Abatimento,
 } from '../types';
 import { getAdjacentMonth, splitInstallments } from './formatters';
-import { isExpenseMatchingCard, isPixExpense, isBoletoExpense, isDebitExpense, isCashExpense } from './cardUtils';
+import {
+  isExpenseMatchingCard,
+  isPixExpense,
+  isBoletoExpense,
+  isDebitExpense,
+  isCashExpense,
+  getCanonicalCardInfo,
+} from './cardUtils';
 
 /**
  * Checks whether an expense is an indefinite / recurring continuous subscription (prazo indeterminado)
@@ -187,13 +195,86 @@ export const getEffectiveMassoterapiaForMonth = (
   });
 };
 
+/**
+ * Retorna os abatimentos e pagamentos adiantados do mês de referência
+ */
+export const getEffectiveAbatimentosForMonth = (
+  month: string,
+  abatimentos: Abatimento[] = []
+): Abatimento[] => {
+  return (abatimentos || []).filter((a) => {
+    const itemMonth = a.referenceMonth || (a.date ? a.date.substring(0, 7) : '');
+    return itemMonth === month;
+  });
+};
+
+/**
+ * Verifica se um abatimento se aplica a um determinado cartão de crédito
+ */
+export const isAbatimentoMatchingCard = (
+  abatimento: Abatimento,
+  targetCardId?: string,
+  targetCardName?: string,
+  registeredCards: CreditCard[] = []
+): boolean => {
+  if (abatimento.targetType !== 'CREDIT_CARD') return false;
+
+  // Direct ID match
+  if (targetCardId && abatimento.cardId && abatimento.cardId === targetCardId) return true;
+
+  // Canonical name matching (e.g. "Mercado Pago" vs "MERCADO PAGO" or Inter)
+  const canonicalTarget = getCanonicalCardInfo(targetCardId, targetCardName, registeredCards);
+  const canonicalAbatimento = getCanonicalCardInfo(abatimento.cardId, abatimento.cardName, registeredCards);
+
+  if (canonicalTarget.canonicalName && canonicalAbatimento.canonicalName) {
+    if (canonicalTarget.canonicalName.toUpperCase() === canonicalAbatimento.canonicalName.toUpperCase()) {
+      return true;
+    }
+  }
+
+  const abName = (abatimento.cardName || '').toLowerCase().trim();
+  const tName = (targetCardName || '').toLowerCase().trim();
+  if (abName && tName && (abName === tName || abName.includes(tName) || tName.includes(abName))) {
+    return true;
+  }
+
+  return false;
+};
+
+/**
+ * Verifica se um abatimento se aplica a uma forma de pagamento específica (Boleto, Pix, etc.)
+ */
+export const isAbatimentoMatchingPaymentMethod = (
+  abatimento: Abatimento,
+  targetMethod: PaymentMethod,
+  targetMethodId?: string,
+  targetMethodName?: string
+): boolean => {
+  if (targetMethodId && abatimento.paymentMethodId && abatimento.paymentMethodId === targetMethodId) {
+    return true;
+  }
+
+  if (targetMethodName && abatimento.paymentMethodName) {
+    if (abatimento.paymentMethodName.toLowerCase().trim() === targetMethodName.toLowerCase().trim()) {
+      return true;
+    }
+  }
+
+  if (abatimento.targetType === 'BOLETO' && targetMethod === 'BOLETO') return true;
+  if (abatimento.targetType === 'PIX' && targetMethod === 'PIX') return true;
+  if (abatimento.paymentMethod && abatimento.paymentMethod === targetMethod) return true;
+
+  return false;
+};
+
 export const calculateMonthSummary = (
   month: string,
   salaries: Salary[],
   incomes: ExtraIncome[],
   expenses: Expense[],
   settings?: UserSettings | null,
-  massoterapiaIncomes: RendaMassoterapia[] = []
+  massoterapiaIncomes: RendaMassoterapia[] = [],
+  abatimentos: Abatimento[] = []
 ): MonthFinancialSummary => {
   // 1. Effective salaries for target referenceMonth (including standardized default if applicable)
   const monthSalaries = getEffectiveSalariesForMonth(month, salaries, settings);
@@ -203,6 +284,14 @@ export const calculateMonthSummary = (
 
   // 2.1. Effective massoterapia incomes for target referenceMonth
   const monthMassoterapia = getEffectiveMassoterapiaForMonth(month, massoterapiaIncomes);
+
+  // 2.2. Effective abatimentos/adiantamentos for target referenceMonth
+  const monthAbatimentos = getEffectiveAbatimentosForMonth(month, abatimentos);
+  const totalAbatimentos = monthAbatimentos.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+  const cardAbatimentosTotal = monthAbatimentos
+    .filter((a) => a.targetType === 'CREDIT_CARD')
+    .reduce((acc, curr) => acc + (curr.amount || 0), 0);
+  const otherAbatimentosTotal = Math.max(0, totalAbatimentos - cardAbatimentosTotal);
 
   // 3. Expenses for target referenceMonth
   const monthExpenses = expenses.filter((e) => e.referenceMonth === month);
@@ -230,14 +319,17 @@ export const calculateMonthSummary = (
   const pendingRevenue = pendingSalary + pendingExtraIncome;
 
   // Expenses calculations
-  const totalExpenses = monthExpenses.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+  const totalExpensesGross = monthExpenses.reduce((acc, curr) => acc + (curr.amount || 0), 0);
   const paidExpenses = monthExpenses
     .filter((e) => e.status === 'PAGA')
     .reduce((acc, curr) => acc + (curr.amount || 0), 0);
-  const pendingExpenses = totalExpenses - paidExpenses;
+
+  // Valor atualizado líquido de despesas a pagar (após abatimentos aplicados)
+  const totalExpenses = Math.max(0, totalExpensesGross - totalAbatimentos);
+  const pendingExpenses = Math.max(0, totalExpensesGross - paidExpenses - totalAbatimentos);
 
   // Credit card invoice for this month (excluding Pix, Boleto, Débito, and Dinheiro)
-  const creditCardInvoiceTotal = monthExpenses
+  const creditCardInvoiceTotalGross = monthExpenses
     .filter(
       (e) =>
         e.paymentMethod === 'CARTAO_CREDITO' &&
@@ -248,10 +340,13 @@ export const calculateMonthSummary = (
     )
     .reduce((acc, curr) => acc + (curr.amount || 0), 0);
 
+  // Valor atualizado líquido da fatura de cartão (subtraindo abatimentos dos cartões)
+  const creditCardInvoiceTotal = Math.max(0, creditCardInvoiceTotalGross - cardAbatimentosTotal);
+
   // Balances
-  // Saldo do Salário: Salário total - Total de despesas
+  // Saldo do Salário: Salário total - Total de despesas atualizadas
   const salaryBalance = totalSalary - totalExpenses;
-  // Saldo Total: Receita Total - Total de despesas
+  // Saldo Total: Receita Total - Total de despesas atualizadas
   const totalBalance = totalRevenue - totalExpenses;
   // Saldo Efetivo Atual: Receitas já recebidas - Despesas já pagas
   const currentEffectiveBalance = receivedRevenue - paidExpenses;
@@ -269,12 +364,17 @@ export const calculateMonthSummary = (
     receivedRevenue,
     pendingRevenue,
     totalExpenses,
+    totalExpensesGross,
     paidExpenses,
     pendingExpenses,
     salaryBalance,
     totalBalance,
     currentEffectiveBalance,
     creditCardInvoiceTotal,
+    creditCardInvoiceTotalGross,
+    totalAbatimentos,
+    cardAbatimentosTotal,
+    otherAbatimentosTotal,
     expensesCount: monthExpenses.length,
   };
 };
@@ -284,7 +384,8 @@ export const calculateCardLimit = (
   allExpenses: Expense[],
   currentMonth: string,
   installmentPurchases: InstallmentPurchase[] = [],
-  registeredCards: CreditCard[] = []
+  registeredCards: CreditCard[] = [],
+  abatimentos: Abatimento[] = []
 ): CardLimitSummary => {
   // All credit card expenses for this card that are not yet paid, or future installments
   const cardExpenses = allExpenses.filter(
@@ -293,15 +394,25 @@ export const calculateCardLimit = (
       isExpenseMatchingCard(e, card.id, card.name, registeredCards.length > 0 ? registeredCards : [card])
   );
 
-  // Current month invoice: all card expenses mapped to currentMonth
-  const currentMonthInvoice = cardExpenses
+  // Current month invoice gross: all card expenses mapped to currentMonth
+  const currentMonthInvoiceGross = cardExpenses
     .filter((e) => e.referenceMonth === currentMonth)
     .reduce((acc, curr) => acc + (curr.amount || 0), 0);
+
+  // Abatimentos aplicados especificamente a este cartão no mês
+  const cardAbatimentos = getEffectiveAbatimentosForMonth(currentMonth, abatimentos).filter((a) =>
+    isAbatimentoMatchingCard(a, card.id, card.name, registeredCards)
+  );
+  const abatimentoAmount = cardAbatimentos.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+
+  // Fatura líquida atualizada a pagar
+  const currentMonthInvoice = Math.max(0, currentMonthInvoiceGross - abatimentoAmount);
 
   // Total used limit:
   // - Fixed purchases & standard installments: all unpaid expenses (past, present, and future) consume limit
   // - Indefinite recurring purchases (prazo indeterminado): only unpaid expenses for current and past months (referenceMonth <= currentMonth) consume limit! Future projections do not lock limit.
-  const usedLimit = cardExpenses
+  // - O adiantamento/abatimento realizado já libera o limite do cartão!
+  const rawUsedLimit = cardExpenses
     .filter((e) => {
       if (e.status !== 'PENDENTE') return false;
       const isIndefinite = isIndefiniteExpense(e, installmentPurchases);
@@ -312,6 +423,7 @@ export const calculateCardLimit = (
     })
     .reduce((acc, curr) => acc + (curr.amount || 0), 0);
 
+  const usedLimit = Math.max(0, rawUsedLimit - abatimentoAmount);
   const availableLimit = Math.max(0, card.totalLimit - usedLimit);
   const usagePercentage = card.totalLimit > 0 
     ? Math.min(100, Math.round((usedLimit / card.totalLimit) * 100))
@@ -322,6 +434,8 @@ export const calculateCardLimit = (
     totalLimit: card.totalLimit,
     usedLimit,
     currentMonthInvoice,
+    currentMonthInvoiceGross,
+    abatimentoAmount,
     availableLimit,
     usagePercentage,
   };

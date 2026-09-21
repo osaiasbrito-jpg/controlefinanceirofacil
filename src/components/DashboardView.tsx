@@ -92,6 +92,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     installmentPurchases,
     extendIndefinitePurchase,
     interruptInstallmentPurchase,
+    settings,
+    massoterapiaIncomes,
   } = useFinance();
 
   const [chartViewMode, setChartViewMode] = useState<'month' | 'evolution'>('month');
@@ -135,7 +137,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const list = [];
     for (let i = 5; i >= 0; i--) {
       const m = getAdjacentMonth(selectedMonth, -i);
-      const summary = calculateMonthSummary(m, salaries, incomes, expenses);
+      const summary = calculateMonthSummary(m, salaries, incomes, expenses, settings, massoterapiaIncomes);
       list.push({
         referenceMonth: m,
         mes: getShortMonthName(m),
@@ -146,7 +148,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       });
     }
     return list;
-  }, [selectedMonth, salaries, incomes, expenses]);
+  }, [selectedMonth, salaries, incomes, expenses, settings, massoterapiaIncomes]);
 
   // 3. Category Breakdown Data for Donut Chart
   const categoryChartData = useMemo(() => {

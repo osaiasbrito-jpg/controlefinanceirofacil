@@ -24,6 +24,7 @@ export const LoginView: React.FC = () => {
     signInWithGoogle,
     signInWithEmail,
     signUpWithEmail,
+    signInAsDemo,
     resetPassword,
     loading,
     error,
@@ -521,6 +522,16 @@ export const LoginView: React.FC = () => {
                   />
                 </svg>
                 <span>Entrar com Conta do Google (Gmail)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => signInAsDemo()}
+                disabled={loading}
+                className="w-full mt-2.5 py-3 px-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-bold text-xs rounded-xl border border-emerald-300 shadow-xs flex items-center justify-center gap-2 transition-all hover:shadow-md cursor-pointer disabled:opacity-50"
+              >
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <span>Acessar com Dados Reais do Banco (Osaias Brito)</span>
               </button>
             </div>
           </div>

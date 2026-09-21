@@ -228,6 +228,104 @@ export async function ensureDatabaseTables() {
 
       CREATE INDEX IF NOT EXISTS "idx_renda_extra_mes" ON "renda_extra"("mes_referencia");
       CREATE INDEX IF NOT EXISTS "idx_renda_extra_descricao" ON "renda_extra"("descricao");
+
+      -- Tabela Dedicada para Sessões Avulsas (Sistema de Gestão de Pessoas - Massoterapia)
+      CREATE TABLE IF NOT EXISTS "sessoes_avulsas" (
+        "id" TEXT PRIMARY KEY,
+        "user_id" TEXT DEFAULT 'osaiasbrito@gmail.com',
+        "cliente" TEXT,
+        "paciente" TEXT,
+        "cliente_paciente" TEXT,
+        "data" TEXT,
+        "data_sessao" TEXT,
+        "data_lancamento" TEXT,
+        "valor" NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+        "procedimento" TEXT,
+        "tecnicas" TEXT,
+        "tipo" TEXT DEFAULT 'Sessão Avulsa',
+        "tipo_sessao" TEXT DEFAULT 'Sessão Avulsa',
+        "profissional" TEXT DEFAULT 'Osaias Brito',
+        "forma_pagamento" TEXT,
+        "observacao" TEXT,
+        "status" TEXT DEFAULT 'Realizado',
+        "origem" TEXT DEFAULT 'Sistema de Gestão de Pessoas',
+        "mes_referencia" TEXT,
+        "created_at" TIMESTAMP DEFAULT NOW(),
+        "updated_at" TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS "idx_sessoes_avulsas_user" ON "sessoes_avulsas"("user_id");
+      CREATE INDEX IF NOT EXISTS "idx_sessoes_avulsas_data" ON "sessoes_avulsas"("data_lancamento");
+
+      -- Tabela Dedicada para Abatimentos / Adiantamentos de Pagamento
+      CREATE TABLE IF NOT EXISTS "abatimentos" (
+        "id" TEXT PRIMARY KEY,
+        "user_id" TEXT NOT NULL,
+        "reference_month" TEXT NOT NULL,
+        "date" TEXT NOT NULL,
+        "amount" DOUBLE PRECISION NOT NULL,
+        "target_type" TEXT NOT NULL DEFAULT 'CREDIT_CARD',
+        "card_id" TEXT,
+        "card_name" TEXT,
+        "payment_method" TEXT,
+        "payment_method_id" TEXT,
+        "payment_method_name" TEXT,
+        "description" TEXT DEFAULT 'Abatimento de Pagamento',
+        "source_method" TEXT,
+        "notes" TEXT,
+        "created_at" TIMESTAMP DEFAULT NOW(),
+        "updated_at" TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS "idx_abatimentos_user_month" ON "abatimentos"("user_id", "reference_month");
+      CREATE INDEX IF NOT EXISTS "idx_abatimentos_card" ON "abatimentos"("card_id");
+      CREATE INDEX IF NOT EXISTS "idx_abatimentos_method" ON "abatimentos"("payment_method_id");
+
+      -- Tabela Dedicada para Atendimentos (Sistema de Gestão de Pessoas - Massoterapia)
+      CREATE TABLE IF NOT EXISTS "atendimentos" (
+        "id" TEXT PRIMARY KEY,
+        "user_id" TEXT DEFAULT 'osaiasbrito@gmail.com',
+        "nome_cliente" TEXT,
+        "cliente" TEXT,
+        "paciente" TEXT,
+        "data_atendimento" TEXT,
+        "data" TEXT,
+        "valor" NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+        "servico" TEXT,
+        "procedimento" TEXT,
+        "tipo" TEXT DEFAULT 'Sessão Avulsa',
+        "profissional" TEXT DEFAULT 'Osaias Brito',
+        "observacoes" TEXT,
+        "status" TEXT DEFAULT 'Realizado',
+        "origem" TEXT DEFAULT 'Sistema de Gestão de Pessoas',
+        "created_at" TIMESTAMP DEFAULT NOW(),
+        "updated_at" TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS "idx_atendimentos_user" ON "atendimentos"("user_id");
+
+      -- Tabela de Abatimentos e Adiantamentos de Pagamento
+      CREATE TABLE IF NOT EXISTS "abatimentos" (
+        "id" TEXT PRIMARY KEY,
+        "user_id" TEXT NOT NULL,
+        "reference_month" TEXT NOT NULL,
+        "date" TEXT NOT NULL,
+        "amount" DOUBLE PRECISION NOT NULL,
+        "target_type" TEXT NOT NULL DEFAULT 'CREDIT_CARD',
+        "card_id" TEXT,
+        "card_name" TEXT,
+        "payment_method" TEXT,
+        "payment_method_id" TEXT,
+        "payment_method_name" TEXT,
+        "description" TEXT NOT NULL DEFAULT 'Abatimento de Pagamento',
+        "source_method" TEXT,
+        "notes" TEXT,
+        "created_at" TIMESTAMP DEFAULT NOW(),
+        "updated_at" TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS "idx_abatimentos_user" ON "abatimentos"("user_id");
+      CREATE INDEX IF NOT EXISTS "idx_abatimentos_mes" ON "abatimentos"("reference_month");
     `);
 
     // 2. Ensure all columns exist even if tables were created previously

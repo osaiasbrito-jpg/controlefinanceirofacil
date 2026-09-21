@@ -99,6 +99,27 @@ export interface Salary {
   updatedAt: string;
 }
 
+export type AbatimentoTargetType = 'CREDIT_CARD' | 'BOLETO' | 'PIX' | 'CUSTOM_METHOD' | 'GENERAL';
+
+export interface Abatimento {
+  id: string;
+  userId: string;
+  referenceMonth: string; // YYYY-MM format
+  date: string; // YYYY-MM-DD
+  amount: number;
+  targetType: AbatimentoTargetType;
+  cardId?: string;
+  cardName?: string;
+  paymentMethod?: PaymentMethod;
+  paymentMethodId?: string;
+  paymentMethodName?: string;
+  description?: string;
+  sourceMethod?: string; // Ex: 'PIX', 'Saldo em Conta', 'Dinheiro', etc.
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ExtraIncome {
   id: string;
   userId: string;
@@ -323,13 +344,18 @@ export interface MonthFinancialSummary {
   totalRevenue: number; // Salário Fixo + Renda Massoterapia + Renda Extra Avulsa
   receivedRevenue: number;
   pendingRevenue: number;
-  totalExpenses: number;
+  totalExpenses: number; // Total líquido a pagar (subtraindo abatimentos)
+  totalExpensesGross?: number; // Total bruto antes dos abatimentos
   paidExpenses: number;
-  pendingExpenses: number;
-  salaryBalance: number; // Salário - Total de Despesas (ou despesas do mês)
-  totalBalance: number; // Receita Total - Total de Despesas
+  pendingExpenses: number; // Pendente líquido a pagar
+  salaryBalance: number; // Salário - Total de Despesas líquidas
+  totalBalance: number; // Receita Total - Total de Despesas líquidas
   currentEffectiveBalance: number; // Receitas Recebidas - Despesas Pagas
-  creditCardInvoiceTotal: number; // Total gastos em cartão neste mês
+  creditCardInvoiceTotal: number; // Total líquido em faturas de cartão no mês (após abatimentos)
+  creditCardInvoiceTotalGross?: number; // Total bruto em faturas de cartão
+  totalAbatimentos: number; // Total de adiantamentos/abatimentos no mês
+  cardAbatimentosTotal: number; // Total de abatimentos em cartões de crédito
+  otherAbatimentosTotal: number; // Total de abatimentos em outros métodos (boletos, etc.)
   expensesCount: number;
 }
 
@@ -337,7 +363,9 @@ export interface CardLimitSummary {
   card: CreditCard;
   totalLimit: number;
   usedLimit: number; // Total de faturas pendentes e parcelas futuras em aberto
-  currentMonthInvoice: number;
+  currentMonthInvoice: number; // Fatura líquida atualizada a pagar
+  currentMonthInvoiceGross?: number; // Fatura bruta original
+  abatimentoAmount?: number; // Total abatido/adiantado nesta fatura
   availableLimit: number;
   usagePercentage: number;
 }

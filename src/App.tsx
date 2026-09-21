@@ -323,6 +323,7 @@ const MainLayout: React.FC = () => {
                 <SalariesView
                   onOpenSalaryModal={handleOpenSalaryModal}
                   onDeleteSalary={handleDeleteSalary}
+                  onNavigateTab={setActiveTab}
                 />
                 <IncomesView
                   onOpenIncomeModal={handleOpenIncomeModal}
@@ -336,6 +337,7 @@ const MainLayout: React.FC = () => {
               <SalariesView
                 onOpenSalaryModal={handleOpenSalaryModal}
                 onDeleteSalary={handleDeleteSalary}
+                onNavigateTab={setActiveTab}
               />
             )}
 

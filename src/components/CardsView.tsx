@@ -17,21 +17,24 @@ import {
   ChevronRight,
   ListFilter,
   CheckCheck,
+  DollarSign,
+  ArrowDownRight,
 } from 'lucide-react';
 import { useFinance } from '../context/FinanceContext';
 import { CreditCard, CustomPaymentMethod, PaymentMethod } from '../types';
-import { formatCurrency, getMonthName } from '../utils/formatters';
+import { formatCurrency, getMonthName, formatDateBR } from '../utils/formatters';
 import { getCanonicalCardInfo, isExpenseMatchingCard, isExpenseMatchingPaymentMethod } from '../utils/cardUtils';
-import { isIndefiniteExpense } from '../utils/calculations';
+import { isIndefiniteExpense, isAbatimentoMatchingCard, isAbatimentoMatchingPaymentMethod } from '../utils/calculations';
 import { PaymentDetailsModal } from './modals/PaymentDetailsModal';
 import { PaymentMethodModal } from './modals/PaymentMethodModal';
+import { AbatimentoModal } from './modals/AbatimentoModal';
 
 interface CardsViewProps {
   onOpenCardModal: (cardToEdit?: CreditCard) => void;
   onDeleteCard: (card: CreditCard) => void;
 }
 
-type TabFilter = 'ALL' | 'CREDIT_CARDS' | 'OTHER_METHODS';
+type TabFilter = 'ALL' | 'CREDIT_CARDS' | 'OTHER_METHODS' | 'ABATIMENTOS';
 
 export const CardsView: React.FC<CardsViewProps> = ({
   onOpenCardModal,
@@ -45,6 +48,9 @@ export const CardsView: React.FC<CardsViewProps> = ({
     installmentPurchases,
     selectedMonth,
     deletePaymentMethod,
+    abatimentos,
+    effectiveAbatimentosForMonth,
+    deleteAbatimento,
   } = useFinance();
 
   const [activeTab, setActiveTab] = useState<TabFilter>('ALL');
@@ -55,6 +61,12 @@ export const CardsView: React.FC<CardsViewProps> = ({
   const [isDrillDownOpen, setIsDrillDownOpen] = useState(false);
   const [isMethodModalOpen, setIsMethodModalOpen] = useState(false);
   const [methodToEdit, setMethodToEdit] = useState<CustomPaymentMethod | null>(null);
+
+  // Abatimento Modal state
+  const [isAbatimentoModalOpen, setIsAbatimentoModalOpen] = useState(false);
+  const [abatimentoTargetType, setAbatimentoTargetType] = useState<'CREDIT_CARD' | 'PAYMENT_METHOD'>('CREDIT_CARD');
+  const [abatimentoTargetCardId, setAbatimentoTargetCardId] = useState<string | undefined>(undefined);
+  const [abatimentoTargetMethod, setAbatimentoTargetMethod] = useState<string | undefined>(undefined);
 
   // Consolidated Credit Cards:
   // "O cartão Banco Inter deverá aparecer apenas 1 vez somando todas as despesas do cartão Inter"
@@ -104,9 +116,17 @@ export const CardsView: React.FC<CardsViewProps> = ({
 
       // Current month invoice
       const monthExpenses = cardExpenses.filter((e) => e.referenceMonth === selectedMonth);
-      const currentMonthInvoice = monthExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+      const currentMonthInvoiceGross = monthExpenses.reduce((sum, exp) => sum + exp.amount, 0);
       const monthPaid = monthExpenses.filter((e) => e.status === 'PAGA').reduce((sum, e) => sum + e.amount, 0);
       const monthPending = monthExpenses.filter((e) => e.status === 'PENDENTE').reduce((sum, e) => sum + e.amount, 0);
+
+      // Abatimentos / adiantamentos aplicados neste cartão para o mês
+      const matchingAbatimentos = effectiveAbatimentosForMonth.filter((ab) =>
+        isAbatimentoMatchingCard(ab, group.canonicalId, group.canonicalName, creditCards)
+      );
+      const cardAbatimentosTotal = matchingAbatimentos.reduce((sum, ab) => sum + ab.amount, 0);
+      // Valor atualizado reduzido após o abatimento
+      const currentMonthInvoice = Math.max(0, currentMonthInvoiceGross - cardAbatimentosTotal);
 
       // Total used limit:
       // - Fixed purchases & standard installments: all unpaid expenses (past, present, and future) consume limit
@@ -132,13 +152,16 @@ export const CardsView: React.FC<CardsViewProps> = ({
         usedLimit,
         availableLimit,
         currentMonthInvoice,
+        currentMonthInvoiceGross,
+        cardAbatimentosTotal,
+        matchingAbatimentos,
         monthPaid,
         monthPending,
         usagePercentage,
         monthCount: monthExpenses.length,
       };
     });
-  }, [creditCards, expenses, selectedMonth, installmentPurchases]);
+  }, [creditCards, expenses, selectedMonth, installmentPurchases, effectiveAbatimentosForMonth]);
 
   // Consolidated Other Payment Methods (Pix, Boleto, Débito, etc.)
   const paymentMethodsSummary = useMemo(() => {
@@ -157,19 +180,29 @@ export const CardsView: React.FC<CardsViewProps> = ({
         );
       });
 
-      const totalAmount = monthExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+      const totalAmountGross = monthExpenses.reduce((sum, exp) => sum + exp.amount, 0);
       const paidAmount = monthExpenses.filter((e) => e.status === 'PAGA').reduce((sum, e) => sum + e.amount, 0);
       const pendingAmount = monthExpenses.filter((e) => e.status === 'PENDENTE').reduce((sum, e) => sum + e.amount, 0);
+
+      // Abatimentos aplicados nesta forma de pagamento
+      const matchingAbatimentos = effectiveAbatimentosForMonth.filter((ab) =>
+        isAbatimentoMatchingPaymentMethod(ab, pm.type, pm.id, pm.name)
+      );
+      const methodAbatimentosTotal = matchingAbatimentos.reduce((sum, ab) => sum + ab.amount, 0);
+      const totalAmount = Math.max(0, totalAmountGross - methodAbatimentosTotal);
 
       return {
         method: pm,
         totalAmount,
+        totalAmountGross,
+        methodAbatimentosTotal,
+        matchingAbatimentos,
         paidAmount,
         pendingAmount,
         count: monthExpenses.length,
       };
     });
-  }, [paymentMethods, expenses, selectedMonth, categories, creditCards]);
+  }, [paymentMethods, expenses, selectedMonth, categories, creditCards, effectiveAbatimentosForMonth]);
 
   const handleOpenDrillDownCard = (group: any) => {
     setSelectedDrillDownCard({
@@ -238,10 +271,22 @@ export const CardsView: React.FC<CardsViewProps> = ({
         <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => {
+              setAbatimentoTargetType('CREDIT_CARD');
+              setAbatimentoTargetCardId(undefined);
+              setIsAbatimentoModalOpen(true);
+            }}
+            className="px-4 py-2.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold shadow-md shadow-teal-200 flex items-center gap-2 transition-colors cursor-pointer"
+          >
+            <TrendingDown className="w-4 h-4" />
+            <span>Lançar Abatimento</span>
+          </button>
+
+          <button
+            onClick={() => {
               setMethodToEdit(null);
               setIsMethodModalOpen(true);
             }}
-            className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-2 transition-colors"
+            className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-2 transition-colors cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Novo Tipo (Pix/Boleto)</span>
@@ -249,7 +294,7 @@ export const CardsView: React.FC<CardsViewProps> = ({
 
           <button
             onClick={() => onOpenCardModal()}
-            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-200 flex items-center gap-2 transition-colors"
+            className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-200 flex items-center gap-2 transition-colors cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Novo Cartão de Crédito</span>
@@ -290,6 +335,17 @@ export const CardsView: React.FC<CardsViewProps> = ({
         >
           <Wallet className="w-3.5 h-3.5" />
           <span>Pix, Boleto e Outros ({paymentMethodsSummary.length})</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('ABATIMENTOS')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
+            activeTab === 'ABATIMENTOS'
+              ? 'bg-emerald-700 text-white shadow-xs'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+          }`}
+        >
+          <TrendingDown className="w-3.5 h-3.5" />
+          <span>Abatimentos Realizados ({effectiveAbatimentosForMonth.length})</span>
         </button>
       </div>
 
@@ -371,21 +427,41 @@ export const CardsView: React.FC<CardsViewProps> = ({
                       <div className="flex justify-between items-center bg-slate-50 p-3 rounded-2xl border border-slate-100">
                         <div>
                           <span className="text-[11px] text-slate-500 font-medium block">
-                            Fatura de {getMonthName(selectedMonth)}
+                            Fatura {group.cardAbatimentosTotal > 0 ? 'Atualizada' : ''} de {getMonthName(selectedMonth)}
                           </span>
                           <span className="font-black text-slate-900 text-base">
                             {formatCurrency(group.currentMonthInvoice)}
                           </span>
+                          {group.cardAbatimentosTotal > 0 && (
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="text-[10px] font-extrabold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.2 rounded-md">
+                                - {formatCurrency(group.cardAbatimentosTotal)} abatido
+                              </span>
+                              <span className="text-[10px] text-slate-400 line-through">
+                                {formatCurrency(group.currentMonthInvoiceGross)}
+                              </span>
+                            </div>
+                          )}
                         </div>
 
-                        <div className="text-right">
+                        <div className="text-right flex flex-col items-end gap-1.5">
                           <span className="text-[10px] font-bold text-slate-400 block">
                             {group.monthCount} compras
                           </span>
-                          <span className="text-[10px] font-extrabold text-indigo-600 flex items-center gap-0.5 justify-end group-hover:underline">
-                            <span>Ver Detalhes</span>
-                            <ChevronRight className="w-3.5 h-3.5" />
-                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAbatimentoTargetType('CREDIT_CARD');
+                              setAbatimentoTargetCardId(group.canonicalId);
+                              setIsAbatimentoModalOpen(true);
+                            }}
+                            className="px-2.5 py-1 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-lg text-[10px] font-extrabold flex items-center gap-1 transition-colors cursor-pointer"
+                            title="Adiantar ou abater valor nesta fatura"
+                          >
+                            <TrendingDown className="w-3 h-3" />
+                            <span>Abater</span>
+                          </button>
                         </div>
                       </div>
 
@@ -490,7 +566,7 @@ export const CardsView: React.FC<CardsViewProps> = ({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-            {paymentMethodsSummary.map(({ method, totalAmount, paidAmount, pendingAmount, count }) => {
+            {paymentMethodsSummary.map(({ method, totalAmount, totalAmountGross, methodAbatimentosTotal, paidAmount, pendingAmount, count }) => {
               const isDefaultSystem = method.id.startsWith('default-pm-');
 
               return (
@@ -517,16 +593,44 @@ export const CardsView: React.FC<CardsViewProps> = ({
                         </span>
                       </div>
                     </div>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setAbatimentoTargetType('PAYMENT_METHOD');
+                        setAbatimentoTargetMethod(method.type);
+                        setIsAbatimentoModalOpen(true);
+                      }}
+                      className="p-1 px-2 text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-lg transition-colors text-[10px] font-extrabold flex items-center gap-1 cursor-pointer"
+                      title="Lançar abatimento para esta forma de pagamento"
+                    >
+                      <TrendingDown className="w-3 h-3" />
+                      <span>Abater</span>
+                    </button>
                   </div>
 
                   {/* Monthly Stats */}
                   <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 flex flex-col gap-1.5">
                     <div className="flex justify-between items-baseline">
-                      <span className="text-[10px] uppercase font-bold text-slate-400">Total no Mês</span>
+                      <span className="text-[10px] uppercase font-bold text-slate-400">
+                        Total {methodAbatimentosTotal > 0 ? 'Atualizado' : 'no Mês'}
+                      </span>
                       <span className="text-base font-black text-slate-900">
                         {formatCurrency(totalAmount)}
                       </span>
                     </div>
+
+                    {methodAbatimentosTotal > 0 && (
+                      <div className="flex items-center justify-between text-[10px]">
+                        <span className="text-teal-700 font-bold bg-teal-50 border border-teal-200 px-1.5 py-0.2 rounded-md">
+                          - {formatCurrency(methodAbatimentosTotal)} abatido
+                        </span>
+                        <span className="text-slate-400 line-through">
+                          {formatCurrency(totalAmountGross)}
+                        </span>
+                      </div>
+                    )}
 
                     <div className="flex justify-between items-center text-[10px] pt-1 border-t border-slate-200/60">
                       <span className="text-emerald-700 font-bold flex items-center gap-1">
@@ -576,6 +680,134 @@ export const CardsView: React.FC<CardsViewProps> = ({
         </div>
       )}
 
+      {/* SECTION 3: Abatimentos e Adiantamentos Registrados */}
+      {(activeTab === 'ALL' || activeTab === 'ABATIMENTOS') && (
+        <div className="flex flex-col gap-4 mt-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <TrendingDown className="w-4 h-4 text-teal-700" />
+              <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-800">
+                Abatimentos e Adiantamentos Realizados ({effectiveAbatimentosForMonth.length})
+              </h3>
+            </div>
+            <button
+              onClick={() => {
+                setAbatimentoTargetType('CREDIT_CARD');
+                setAbatimentoTargetCardId(undefined);
+                setIsAbatimentoModalOpen(true);
+              }}
+              className="text-xs font-bold text-teal-700 hover:text-teal-800 flex items-center gap-1 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Lançar Abatimento</span>
+            </button>
+          </div>
+
+          {effectiveAbatimentosForMonth.length === 0 ? (
+            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs p-8 flex flex-col items-center justify-center text-center">
+              <div className="w-12 h-12 rounded-2xl bg-teal-50 flex items-center justify-center text-teal-700 mb-2">
+                <TrendingDown className="w-6 h-6" />
+              </div>
+              <h4 className="text-sm font-bold text-slate-800">Nenhum abatimento registrado neste mês</h4>
+              <p className="text-xs text-slate-400 max-w-md mt-1 mb-4">
+                Se adiantar o pagamento de uma fatura de cartão ou boleto, registre aqui para abater o valor e recalcular o saldo a pagar automaticamente.
+              </p>
+              <button
+                onClick={() => {
+                  setAbatimentoTargetType('CREDIT_CARD');
+                  setAbatimentoTargetCardId(undefined);
+                  setIsAbatimentoModalOpen(true);
+                }}
+                className="px-4 py-2 bg-teal-700 text-white text-xs font-bold rounded-xl hover:bg-teal-800 transition-colors shadow-xs cursor-pointer"
+              >
+                + Lançar Primeiro Abatimento
+              </button>
+            </div>
+          ) : (
+            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs overflow-hidden">
+              <div className="p-4 bg-teal-50/50 border-b border-slate-100 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-black text-teal-900">Total Abatido em {getMonthName(selectedMonth)}:</span>
+                  <span className="text-sm font-black text-teal-800">
+                    {formatCurrency(effectiveAbatimentosForMonth.reduce((sum, a) => sum + a.amount, 0))}
+                  </span>
+                </div>
+                <span className="text-[11px] text-teal-700 font-bold">
+                  {effectiveAbatimentosForMonth.length} adiantamento(s) ativo(s)
+                </span>
+              </div>
+
+              <div className="divide-y divide-slate-100">
+                {effectiveAbatimentosForMonth.map((ab) => {
+                  const isCard = ab.targetType === 'CREDIT_CARD';
+                  const targetLabel = isCard
+                    ? `Cartão ${ab.cardName || 'de Crédito'}`
+                    : `Boleto / ${ab.paymentMethodName || ab.paymentMethod || 'Outro'}`;
+
+                  return (
+                    <div
+                      key={ab.id}
+                      className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/80 transition-colors"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold shrink-0 ${
+                          isCard ? 'bg-indigo-50 text-indigo-700' : 'bg-teal-50 text-teal-700'
+                        }`}>
+                          {isCard ? <CardIcon className="w-4 h-4" /> : <Wallet className="w-4 h-4" />}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-black text-slate-900">
+                              {ab.description || 'Abatimento de Pagamento'}
+                            </span>
+                            <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md border ${
+                              isCard
+                                ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                                : 'bg-teal-50 text-teal-700 border-teal-200'
+                            }`}>
+                              Abatido em: {targetLabel}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-0.5 flex-wrap font-medium">
+                            <span>Data: {formatDateBR(ab.date)}</span>
+                            {ab.sourceMethod && <span>Origem: {ab.sourceMethod}</span>}
+                            {ab.notes && <span className="italic">Obs: {ab.notes}</span>}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0 border-t sm:border-t-0 pt-2 sm:pt-0">
+                        <div className="text-right">
+                          <span className="text-sm font-black text-emerald-700 block">
+                            - {formatCurrency(ab.amount)}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                            Abatido do Total
+                          </span>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm(`Deseja remover o abatimento de ${formatCurrency(ab.amount)} em ${targetLabel}?`)) {
+                              deleteAbatimento(ab.id);
+                            }
+                          }}
+                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                          title="Excluir Abatimento"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Drill-down Modal (Detailed view of purchases for a specific card or payment method) */}
       <PaymentDetailsModal
         isOpen={isDrillDownOpen}
@@ -593,6 +825,15 @@ export const CardsView: React.FC<CardsViewProps> = ({
           setMethodToEdit(null);
         }}
         methodToEdit={methodToEdit}
+      />
+
+      {/* Abatimento Modal */}
+      <AbatimentoModal
+        isOpen={isAbatimentoModalOpen}
+        onClose={() => setIsAbatimentoModalOpen(false)}
+        initialTargetType={abatimentoTargetType}
+        initialCardId={abatimentoTargetCardId}
+        initialPaymentMethod={abatimentoTargetMethod}
       />
     </div>
   );

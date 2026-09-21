@@ -19,6 +19,7 @@ import {
   FileSpreadsheet,
   Wallet,
   TrendingUp,
+  TrendingDown,
   DollarSign,
   Layers,
   ArrowUpRight,
@@ -52,10 +53,12 @@ import {
   isCashExpense,
   isExpenseMatchingPaymentMethod,
 } from '../utils/cardUtils';
+import { isAbatimentoMatchingCard, isAbatimentoMatchingPaymentMethod } from '../utils/calculations';
 import { ConfirmDeleteModal } from './modals/ConfirmDeleteModal';
 import { NonRecurringExpensesSummary } from './NonRecurringExpensesSummary';
 import { IndefiniteEndingAlerts } from './IndefiniteEndingAlerts';
 import { ExtendIndefiniteModal } from './modals/ExtendIndefiniteModal';
+import { AbatimentoModal } from './modals/AbatimentoModal';
 
 interface ExpensesViewProps {
   onOpenExpenseModal: (expenseToEdit?: Expense) => void;
@@ -96,6 +99,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
     monthSummary,
     monthInstallmentsAndSingleSummary,
     installmentPurchases,
+    effectiveAbatimentosForMonth,
   } = useFinance();
 
   const [showFilters, setShowFilters] = useState(false);
@@ -104,6 +108,12 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
   const [activeBreakdownFilter, setActiveBreakdownFilter] = useState<ActiveBreakdownFilter>({
     type: 'ALL',
   });
+
+  // Abatimento Modal state
+  const [isAbatimentoModalOpen, setIsAbatimentoModalOpen] = useState(false);
+  const [abatimentoTargetType, setAbatimentoTargetType] = useState<'CREDIT_CARD' | 'PAYMENT_METHOD'>('CREDIT_CARD');
+  const [abatimentoTargetCardId, setAbatimentoTargetCardId] = useState<string | undefined>(undefined);
+  const [abatimentoTargetMethod, setAbatimentoTargetMethod] = useState<string | undefined>(undefined);
 
   // Multi-selection state for batch operations
   const [selectedExpenseIds, setSelectedExpenseIds] = useState<Set<string>>(new Set());
@@ -331,15 +341,38 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
       }
     });
 
-    const cardsList = Array.from(cardGroupMap.values());
-    const methodsList = Array.from(methodMap.values());
+    const cardsList = Array.from(cardGroupMap.values()).map((c) => {
+      const matchingAb = effectiveAbatimentosForMonth.filter((ab) =>
+        isAbatimentoMatchingCard(ab, c.cardId, c.cardName, creditCards)
+      );
+      const abatimentoTotal = matchingAb.reduce((sum, a) => sum + a.amount, 0);
+      return {
+        ...c,
+        grossTotal: c.total,
+        abatimentoTotal,
+        total: Math.max(0, c.total - abatimentoTotal),
+      };
+    });
+
+    const methodsList = Array.from(methodMap.values()).map((m) => {
+      const matchingAb = effectiveAbatimentosForMonth.filter((ab) =>
+        isAbatimentoMatchingPaymentMethod(ab, m.method, m.methodId, m.label)
+      );
+      const abatimentoTotal = matchingAb.reduce((sum, a) => sum + a.amount, 0);
+      return {
+        ...m,
+        grossTotal: m.total,
+        abatimentoTotal,
+        total: Math.max(0, m.total - abatimentoTotal),
+      };
+    });
 
     return {
       cards: cardsList,
       methods: methodsList,
       totalCardCount: cardsList.reduce((acc, c) => acc + c.count, 0),
     };
-  }, [expenses, selectedMonth, creditCards, paymentMethods, categories, installmentPurchases]);
+  }, [expenses, selectedMonth, creditCards, paymentMethods, categories, installmentPurchases, effectiveAbatimentosForMonth]);
 
   // Filtered by sub-tab and clicked breakdown card/method
   const displayedExpenses = useMemo(() => {
@@ -598,6 +631,19 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
           </button>
 
           <button
+            onClick={() => {
+              setAbatimentoTargetType('CREDIT_CARD');
+              setAbatimentoTargetCardId(undefined);
+              setIsAbatimentoModalOpen(true);
+            }}
+            className="px-3.5 py-2.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-2xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
+            title="Lançar adiantamento ou abatimento em fatura ou boleto"
+          >
+            <TrendingDown className="w-4 h-4 text-teal-700" />
+            <span>Abater Fatura / Boleto</span>
+          </button>
+
+          <button
             onClick={() => onOpenExpenseModal()}
             className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-extrabold shadow-md shadow-emerald-200 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
           >
@@ -628,8 +674,15 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
             </div>
           </div>
           <div>
-            <div className="text-2xl font-black text-slate-900 tracking-tight">
-              {formatCurrency(totalMonthExpenses)}
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <span className="text-2xl font-black text-slate-900 tracking-tight">
+                {formatCurrency(totalMonthExpenses)}
+              </span>
+              {monthSummary.totalAbatimentos > 0 && (
+                <span className="text-[10px] text-teal-700 font-extrabold bg-teal-50 px-1.5 py-0.5 rounded-md border border-teal-200">
+                  - {formatCurrency(monthSummary.totalAbatimentos)} abatido
+                </span>
+              )}
             </div>
             <div className="flex items-center justify-between text-xs mt-2 pt-2 border-t border-slate-100">
               <span className="text-emerald-600 font-bold flex items-center gap-1">
@@ -721,8 +774,15 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
             </div>
           </div>
           <div>
-            <div className="text-2xl font-black text-slate-900 tracking-tight">
-              {formatCurrency(monthSummary.creditCardInvoiceTotal)}
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <span className="text-2xl font-black text-slate-900 tracking-tight">
+                {formatCurrency(monthSummary.creditCardInvoiceTotal)}
+              </span>
+              {monthSummary.cardAbatimentosTotal > 0 && (
+                <span className="text-[10px] text-teal-700 font-extrabold bg-teal-50 px-1.5 py-0.5 rounded-md border border-teal-200">
+                  - {formatCurrency(monthSummary.cardAbatimentosTotal)} abatido
+                </span>
+              )}
             </div>
             <div className="flex items-center justify-between text-xs mt-2 pt-2 border-t border-slate-100 text-slate-500">
               <span>{paymentBreakdown.cards.length} cartão(ões) com gasto</span>
@@ -816,12 +876,26 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
                     </span>
                   </div>
                   <div className="flex items-baseline justify-between pt-1.5 border-t border-slate-200/60">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                      Fatura Mês
-                    </span>
-                    <span className="text-sm font-black text-slate-900">
-                      {formatCurrency(item.total)}
-                    </span>
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                        Fatura {item.abatimentoTotal > 0 ? 'Atualizada' : 'Mês'}
+                      </span>
+                      {item.abatimentoTotal > 0 && (
+                        <span className="text-[9px] text-teal-700 font-bold">
+                          - {formatCurrency(item.abatimentoTotal)} abatido
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <span className="text-sm font-black text-slate-900 block">
+                        {formatCurrency(item.total)}
+                      </span>
+                      {item.abatimentoTotal > 0 && (
+                        <span className="text-[9px] text-slate-400 line-through">
+                          {formatCurrency(item.grossTotal)}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </button>
               );
@@ -892,12 +966,26 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
                     </span>
                   </div>
                   <div className="flex items-baseline justify-between pt-1.5 border-t border-slate-200/60">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                      Total Mês
-                    </span>
-                    <span className="text-sm font-black text-slate-900">
-                      {formatCurrency(methodItem.total)}
-                    </span>
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                        Total {methodItem.abatimentoTotal > 0 ? 'Atualizado' : 'Mês'}
+                      </span>
+                      {methodItem.abatimentoTotal > 0 && (
+                        <span className="text-[9px] text-teal-700 font-bold">
+                          - {formatCurrency(methodItem.abatimentoTotal)} abatido
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <span className="text-sm font-black text-slate-900 block">
+                        {formatCurrency(methodItem.total)}
+                      </span>
+                      {methodItem.abatimentoTotal > 0 && (
+                        <span className="text-[9px] text-slate-400 line-through">
+                          {formatCurrency(methodItem.grossTotal)}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </button>
               );
@@ -1922,6 +2010,15 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
         onInterrupt={async (purchaseId) => {
           await interruptInstallmentPurchase(purchaseId);
         }}
+      />
+
+      {/* Modal de Lançamento de Abatimento / Adiantamento */}
+      <AbatimentoModal
+        isOpen={isAbatimentoModalOpen}
+        onClose={() => setIsAbatimentoModalOpen(false)}
+        initialTargetType={abatimentoTargetType}
+        initialCardId={abatimentoTargetCardId}
+        initialPaymentMethod={abatimentoTargetMethod}
       />
     </div>
   );

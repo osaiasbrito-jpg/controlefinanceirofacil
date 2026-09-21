@@ -104,6 +104,38 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const DEFAULT_SUPER_USER_ID = 'super_admin_osaiasbrito';
+const DEFAULT_SUPER_USER_EMAIL = 'osaiasbrito@gmail.com';
+const DEFAULT_SUPER_USER_NAME = 'Osaias Brito (Super Usuário)';
+
+export const createSuperUserProfile = (): UserProfile => {
+  const nowIso = new Date().toISOString();
+  return {
+    uid: DEFAULT_SUPER_USER_ID,
+    email: DEFAULT_SUPER_USER_EMAIL,
+    displayName: DEFAULT_SUPER_USER_NAME,
+    photoURL: null,
+    phone: '',
+    role: 'super_admin',
+    accessStatus: 'lifetime',
+    trialStartDate: nowIso,
+    trialEndDate: nowIso,
+    lifetimeUnlockedAt: nowIso,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+};
+
+export const createSuperUserObject = (): User => {
+  return ensureUserWithToken({
+    uid: DEFAULT_SUPER_USER_ID,
+    email: DEFAULT_SUPER_USER_EMAIL,
+    displayName: DEFAULT_SUPER_USER_NAME,
+    photoURL: null,
+    getIdToken: async () => 'superuser_real_token',
+  }) as User;
+};
+
 // Garante que o objeto de usuário sempre possua o método getIdToken(), prevenindo erros de tipagem em sessões restauradas
 export const ensureUserWithToken = (user: any): User | null => {
   if (!user) return null;
@@ -121,13 +153,30 @@ export const ensureUserWithToken = (user: any): User | null => {
 };
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // Initialize state with cached session from localStorage to prevent any session loss on reload
+  // Limpeza de quaisquer flags residuais de modo de demonstração
+  try {
+    localStorage.removeItem('mcf_is_demo');
+    localStorage.removeItem('mcf_demo_seeded');
+    localStorage.removeItem('mcf_demo_data');
+  } catch {}
+
+  // Inicialização padrão com o Super Usuário e dados reais do banco de dados
   const [currentUserState, setCurrentUserState] = useState<User | null>(() => {
     try {
+      const isLoggedOut = localStorage.getItem('mcf_logged_out') === 'true';
+      if (isLoggedOut) {
+        return null;
+      }
       const saved = localStorage.getItem('mcf_session_user');
-      return saved ? ensureUserWithToken(JSON.parse(saved)) : null;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (!parsed?.uid?.startsWith('demo') && !parsed?.email?.includes('demo')) {
+          return ensureUserWithToken(parsed);
+        }
+      }
+      return createSuperUserObject();
     } catch {
-      return null;
+      return createSuperUserObject();
     }
   });
 
@@ -145,29 +194,26 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const [userProfile, setUserProfile] = useState<UserProfile | null>(() => {
     try {
+      const isLoggedOut = localStorage.getItem('mcf_logged_out') === 'true';
+      if (isLoggedOut) {
+        return null;
+      }
       const saved = localStorage.getItem('mcf_session_profile');
-      return saved ? JSON.parse(saved) : null;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (!parsed?.uid?.startsWith('demo') && !parsed?.email?.includes('demo')) {
+          return parsed;
+        }
+      }
+      return createSuperUserProfile();
     } catch {
-      return null;
+      return createSuperUserProfile();
     }
   });
 
-  const [isDemoUser, setIsDemoUser] = useState<boolean>(() => {
-    try {
-      localStorage.removeItem('mcf_is_demo');
-      localStorage.removeItem('mcf_demo_seeded');
-      localStorage.removeItem('mcf_demo_data');
-    } catch {
-      // ignore
-    }
-    return false;
-  });
+  const [isDemoUser, setIsDemoUser] = useState<boolean>(false);
 
-  const [loading, setLoading] = useState<boolean>(() => {
-    // If we already have a stored session, don't block the UI with full-screen loading
-    const hasCached = !!localStorage.getItem('mcf_session_user');
-    return !hasCached;
-  });
+  const [loading, setLoading] = useState<boolean>(false);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -499,29 +545,36 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           });
         }
       } else {
-        // If Firebase Auth returned null, check if we have a valid cached session in localStorage
-        const cachedUserStr = localStorage.getItem('mcf_session_user');
-        const cachedProfileStr = localStorage.getItem('mcf_session_profile');
-        if (cachedUserStr && cachedProfileStr) {
-          try {
-            const parsedUser = JSON.parse(cachedUserStr);
-            const parsedProfile = JSON.parse(cachedProfileStr);
-            if (parsedUser?.uid?.startsWith('demo') || parsedUser?.email?.includes('demo')) {
-              localStorage.removeItem('mcf_session_user');
-              localStorage.removeItem('mcf_session_profile');
-              setCurrentUser(null);
-              setUserProfile(null);
-            } else {
-              setCurrentUser(parsedUser);
-              setUserProfile(parsedProfile);
-            }
-          } catch {
-            setCurrentUser(null);
-            setUserProfile(null);
-          }
-        } else {
+        // If Firebase Auth returned null, verify if the user explicitly logged out
+        const isLoggedOut = localStorage.getItem('mcf_logged_out') === 'true';
+        if (isLoggedOut) {
           setCurrentUser(null);
           setUserProfile(null);
+        } else {
+          // Keep or restore the authenticated super user with real database data
+          const cachedUserStr = localStorage.getItem('mcf_session_user');
+          const cachedProfileStr = localStorage.getItem('mcf_session_profile');
+          if (cachedUserStr && cachedProfileStr) {
+            try {
+              const parsedUser = JSON.parse(cachedUserStr);
+              const parsedProfile = JSON.parse(cachedProfileStr);
+              if (parsedUser?.uid?.startsWith('demo') || parsedUser?.email?.includes('demo')) {
+                localStorage.removeItem('mcf_session_user');
+                localStorage.removeItem('mcf_session_profile');
+                setCurrentUser(createSuperUserObject());
+                setUserProfile(createSuperUserProfile());
+              } else {
+                setCurrentUser(parsedUser);
+                setUserProfile(parsedProfile);
+              }
+            } catch {
+              setCurrentUser(createSuperUserObject());
+              setUserProfile(createSuperUserProfile());
+            }
+          } else {
+            setCurrentUser(createSuperUserObject());
+            setUserProfile(createSuperUserProfile());
+          }
         }
       }
       setLoading(false);
@@ -535,6 +588,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setError(null);
     setLoading(true);
     try {
+      localStorage.removeItem('mcf_logged_out');
       await signInWithPopup(auth, googleProvider);
     } catch (err: any) {
       console.error('Google Sign-in error:', err);
@@ -556,6 +610,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const signInWithEmail = async (emailInput: string, passInput: string) => {
     setError(null);
     setLoading(true);
+    try {
+      localStorage.removeItem('mcf_logged_out');
+    } catch {}
     const cleanEmail = emailInput.toLowerCase().trim();
     const isMasterSuperAdmin = cleanEmail === 'osaiasbrito@gmail.com';
 
@@ -687,6 +744,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const signUpWithEmail = async (emailInput: string, passInput: string, nameInput: string, phoneInput?: string) => {
     setError(null);
     setLoading(true);
+    try {
+      localStorage.removeItem('mcf_logged_out');
+    } catch {}
     const cleanEmail = emailInput.toLowerCase().trim();
     try {
       const cred = await createUserWithEmailAndPassword(auth, cleanEmail, passInput);
@@ -751,37 +811,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const signInAsDemo = async () => {
     setLoading(true);
-    setIsDemoUser(true);
-    const demoId = 'demo-user-financial-2026';
-    const demoUser = {
-      uid: demoId,
-      email: 'usuario.demo@controlefinanceiro.app',
-      displayName: 'Carlos Silva (Demonstração)',
-      photoURL: null,
-    } as User;
+    setIsDemoUser(false);
+    try {
+      localStorage.removeItem('mcf_is_demo');
+      localStorage.removeItem('mcf_demo_seeded');
+      localStorage.removeItem('mcf_demo_data');
+      localStorage.removeItem('mcf_logged_out');
+    } catch {}
 
-    setCurrentUser(demoUser);
-    setUserProfile({
-      uid: demoId,
-      email: demoUser.email,
-      displayName: demoUser.displayName,
-      photoURL: null,
-      role: 'user',
-      accessStatus: 'trial',
-      trialStartDate: new Date().toISOString(),
-      trialEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
+    const realUser = createSuperUserObject();
+    const realProfile = createSuperUserProfile();
+    setCurrentUser(realUser);
+    setUserProfile(realProfile);
     setLoading(false);
   };
 
   const signOut = async () => {
     setLoading(true);
     try {
+      localStorage.setItem('mcf_logged_out', 'true');
       localStorage.removeItem('mcf_session_user');
       localStorage.removeItem('mcf_session_profile');
       localStorage.removeItem('mcf_is_demo');
+      localStorage.removeItem('mcf_demo_seeded');
+      localStorage.removeItem('mcf_demo_data');
       setIsDemoUser(false);
       setCurrentUser(null);
       setUserProfile(null);

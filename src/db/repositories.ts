@@ -14,9 +14,17 @@ import {
   backups,
   rendaExtra,
   systemIntegrationsLog,
+  abatimentos,
 } from './schema';
 import { eq, and, desc, sql, or, inArray } from 'drizzle-orm';
 import { ensureDatabaseTables } from './init';
+import {
+  fetchGestaoPacientesMassoterapia,
+  saveGestaoPacientesMassoterapia,
+  deleteGestaoPacientesMassoterapia,
+  deleteMultipleGestaoPacientesMassoterapia,
+  testGestaoPacientesConnection,
+} from './gestaoPacientesDb';
 
 export interface SyncDataPayload {
   userId: string;
@@ -29,6 +37,7 @@ export interface SyncDataPayload {
   installmentPurchases?: any[];
   categories?: any[];
   budgets?: any[];
+  abatimentos?: any[];
   settings?: any;
 }
 
@@ -196,9 +205,14 @@ export async function getFullUserData(userId: string, userEmail?: string) {
     const filterCondition = (column: any) =>
       uidList.length === 1 ? eq(column, uidList[0]) : inArray(column, uidList);
 
-    // Sincronizar automaticamente quaisquer logs de integração pendentes
+    const effectiveUserId = isOsaias ? 'osaiasbrito@gmail.com' : (userId || 'osaiasbrito@gmail.com');
+
+    // Sincronizar automaticamente quaisquer logs de integração e sessões avulsas pendentes
     try {
       await syncIntegrationsLogToMassoterapia();
+    } catch {}
+    try {
+      await autoImportGestaoMassoterapiaSessions(effectiveUserId);
     } catch {}
 
     const [
@@ -211,6 +225,7 @@ export async function getFullUserData(userId: string, userEmail?: string) {
       userInstallments,
       userCategories,
       userBudgets,
+      userAbatimentos,
       settings,
     ] = await Promise.all([
       db.select().from(salaries).where(filterCondition(salaries.userId)),
@@ -222,6 +237,7 @@ export async function getFullUserData(userId: string, userEmail?: string) {
       db.select().from(installmentPurchases).where(filterCondition(installmentPurchases.userId)),
       db.select().from(categories).where(filterCondition(categories.userId)),
       db.select().from(budgets).where(filterCondition(budgets.userId)),
+      db.select().from(abatimentos).where(filterCondition(abatimentos.userId)),
       getUserSettings(userId),
     ]);
 
@@ -251,6 +267,7 @@ export async function getFullUserData(userId: string, userEmail?: string) {
       installmentPurchases: userInstallments,
       categories: userCategories,
       budgets: userBudgets,
+      abatimentos: userAbatimentos || [],
       settings,
     };
   } catch (error) {
@@ -621,6 +638,50 @@ export async function syncUserData(payload: SyncDataPayload) {
       await upsertUserSettings(userId, payload.settings);
     }
 
+    // 10. Abatimentos e Adiantamentos
+    if (payload.abatimentos && Array.isArray(payload.abatimentos)) {
+      const validAbatimentos = payload.abatimentos.filter((ab) => ab && ab.id);
+      await processBatched(validAbatimentos, 20, async (ab) => {
+        await db
+          .insert(abatimentos)
+          .values({
+            id: String(ab.id),
+            userId,
+            referenceMonth: ab.referenceMonth || (ab.date ? ab.date.substring(0, 7) : 'GLOBAL'),
+            date: ab.date || new Date().toISOString().substring(0, 10),
+            amount: Number(ab.amount) || 0,
+            targetType: ab.targetType || 'CREDIT_CARD',
+            cardId: ab.cardId ? String(ab.cardId) : null,
+            cardName: ab.cardName ? String(ab.cardName) : null,
+            paymentMethod: ab.paymentMethod ? String(ab.paymentMethod) : null,
+            paymentMethodId: ab.paymentMethodId ? String(ab.paymentMethodId) : null,
+            paymentMethodName: ab.paymentMethodName ? String(ab.paymentMethodName) : null,
+            description: ab.description ? String(ab.description) : 'Abatimento de Pagamento',
+            sourceMethod: ab.sourceMethod ? String(ab.sourceMethod) : null,
+            notes: ab.notes ? String(ab.notes) : null,
+            updatedAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: abatimentos.id,
+            set: {
+              referenceMonth: ab.referenceMonth ? String(ab.referenceMonth) : sql`abatimentos.reference_month`,
+              date: ab.date ? String(ab.date) : sql`abatimentos.date`,
+              amount: ab.amount !== undefined ? Number(ab.amount) : sql`abatimentos.amount`,
+              targetType: ab.targetType ? String(ab.targetType) : sql`abatimentos.target_type`,
+              cardId: ab.cardId ? String(ab.cardId) : sql`abatimentos.card_id`,
+              cardName: ab.cardName ? String(ab.cardName) : sql`abatimentos.card_name`,
+              paymentMethod: ab.paymentMethod ? String(ab.paymentMethod) : sql`abatimentos.payment_method`,
+              paymentMethodId: ab.paymentMethodId ? String(ab.paymentMethodId) : sql`abatimentos.payment_method_id`,
+              paymentMethodName: ab.paymentMethodName ? String(ab.paymentMethodName) : sql`abatimentos.payment_method_name`,
+              description: ab.description ? String(ab.description) : sql`abatimentos.description`,
+              sourceMethod: ab.sourceMethod ? String(ab.sourceMethod) : sql`abatimentos.source_method`,
+              notes: ab.notes !== undefined ? (ab.notes || null) : sql`abatimentos.notes`,
+              updatedAt: new Date(),
+            },
+          });
+      });
+    }
+
     return { success: true, timestamp: new Date().toISOString() };
   } catch (error) {
     console.error('Database query failed for syncUserData:', error);
@@ -640,6 +701,9 @@ export async function deleteEntity(table: string, id: string, userId: string) {
         break;
       case 'incomes':
         await db.delete(extraIncomes).where(and(eq(extraIncomes.id, id), eq(extraIncomes.userId, userId)));
+        break;
+      case 'abatimentos':
+        await db.delete(abatimentos).where(and(eq(abatimentos.id, id), eq(abatimentos.userId, userId)));
         break;
       case 'renda_massoterapia':
       case 'massoterapia':
@@ -837,6 +901,56 @@ export async function syncIntegrationsLogToMassoterapia(): Promise<number> {
 
 export async function getMassoterapiaRecords(userId: string, mesReferencia?: string) {
   try {
+    // 1. PRIORIDADE MÁXIMA: Buscar diretamente da fonte de verdade: Banco de GESTÃO DE PACIENTES (Supabase)
+    let gestaoRecords: any[] = [];
+    try {
+      gestaoRecords = await fetchGestaoPacientesMassoterapia(mesReferencia);
+    } catch (gErr) {
+      console.warn('Aviso ao consultar banco do Gestão de Pacientes, usando fallback:', gErr);
+    }
+
+    if (gestaoRecords && gestaoRecords.length > 0) {
+      // Espelhar em segundo plano no banco local (Cloud SQL / PostgreSQL) para redundância
+      for (const rec of gestaoRecords) {
+        try {
+          await db
+            .insert(rendaMassoterapia)
+            .values({
+              id: rec.id,
+              userId: 'osaiasbrito@gmail.com',
+              dataLancamento: rec.dataLancamento,
+              valor: rec.valor,
+              observacao: rec.observacao,
+              clientePaciente: rec.clientePaciente,
+              clientName: rec.clientePaciente,
+              procedimento: rec.procedimento,
+              tecnicas: rec.procedimento,
+              tipo: rec.tipoSessao,
+              tipoSessao: rec.tipoSessao,
+              status: rec.status,
+              profissional: rec.profissional,
+              mesReferencia: rec.mesReferencia,
+              referenceMonth: rec.mesReferencia,
+              origem: 'Gestão de Pacientes (Supabase)',
+              updatedAt: new Date(),
+            })
+            .onConflictDoUpdate({
+              target: rendaMassoterapia.id,
+              set: {
+                dataLancamento: rec.dataLancamento,
+                valor: rec.valor,
+                observacao: rec.observacao,
+                clientePaciente: rec.clientePaciente,
+                status: rec.status,
+                updatedAt: new Date(),
+              },
+            });
+        } catch {}
+      }
+      return gestaoRecords;
+    }
+
+    // Fallback: banco local
     const isOsaias =
       userId?.toLowerCase().includes('osaias') ||
       userId?.toLowerCase() === 'osaiasbrito@gmail.com';
@@ -863,7 +977,15 @@ export async function getMassoterapiaRecords(userId: string, mesReferencia?: str
 
 export async function upsertMassoterapiaRecord(userId: string, item: any) {
   try {
-    const id = String(item.id || `masso_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`);
+    // 1. Gravar DIRETAMENTE no banco de dados do SISTEMA DE GESTÃO DE PACIENTES (Supabase)
+    let savedGestao: any = null;
+    try {
+      savedGestao = await saveGestaoPacientesMassoterapia(item);
+    } catch (gestaoErr) {
+      console.warn('Aviso ao salvar diretamente no banco de Gestão de Pacientes:', gestaoErr);
+    }
+
+    const id = String(savedGestao?.id || item.id || `rm-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`);
     const valor = Number(item.valor !== undefined ? item.valor : (item.amount !== undefined ? item.amount : item.price)) || 0;
     const dataLancamento = item.dataLancamento || item.data || item.date || new Date().toISOString().substring(0, 10);
     const observacao = item.observacao || item.notes || item.description || null;
@@ -877,7 +999,7 @@ export async function upsertMassoterapiaRecord(userId: string, item: any) {
     const profissional = item.profissional || item.professional || 'Osaias Brito';
     const mesReferencia = item.mesReferencia || item.referenceMonth || (dataLancamento ? dataLancamento.substring(0, 7) : new Date().toISOString().substring(0, 7));
     const referenceMonth = mesReferencia;
-    const origem = item.origem || item.source || 'Terapias Pro';
+    const origem = item.origem || 'Gestão de Pacientes (Supabase)';
     const dadosExtras = item.dadosExtras || item.payload || item.metadata || null;
 
     const valuesToInsert = {
@@ -927,7 +1049,7 @@ export async function upsertMassoterapiaRecord(userId: string, item: any) {
       })
       .returning();
 
-    return result[0];
+    return savedGestao || result[0];
   } catch (error) {
     console.error('Falha ao salvar registro de massoterapia:', error);
     throw error;
@@ -947,6 +1069,13 @@ export async function deleteMassoterapiaRecord(userId: string, id: string) {
     // Se for teste explícito, limpa registros de teste
     if (id === 'teste_conexao_massoterapia' || id === 'clean-tests' || id.toLowerCase().includes('teste')) {
       await cleanAllTestRecords(userId);
+    }
+
+    // 0. Excluir DIRETAMENTE do banco de dados de GESTÃO DE PACIENTES (Supabase)
+    try {
+      await deleteGestaoPacientesMassoterapia(id);
+    } catch (gDelErr) {
+      console.warn('Aviso ao excluir do banco de Gestão de Pacientes:', gDelErr);
     }
 
     // Gerar todos os IDs possíveis (com ou sem prefixos repetidos de log_, log-, etc.)
@@ -1011,6 +1140,16 @@ export async function deleteMassoterapiaRecord(userId: string, id: string) {
         );
       } catch {}
       try {
+        await db.execute(
+          sql`DELETE FROM sessoes_avulsas WHERE id = ${pid} OR id LIKE ${'%' + pid + '%'}`
+        );
+      } catch {}
+      try {
+        await db.execute(
+          sql`DELETE FROM atendimentos WHERE id = ${pid} OR id LIKE ${'%' + pid + '%'}`
+        );
+      } catch {}
+      try {
         await db.delete(rendaExtra).where(eq(rendaExtra.id, pid));
       } catch {}
     }
@@ -1035,7 +1174,30 @@ export async function cleanAllTestRecords(userId?: string) {
          OR (dados_extras IS NOT NULL AND (dados_extras->>'isTest' = 'true' OR dados_extras->>'is_test' = 'true'));
     `);
 
-    // 2. Remover também de system_integrations_log para não poluir
+    // 2. Remover também de sessoes_avulsas e atendimentos
+    try {
+      await db.execute(sql`
+        DELETE FROM sessoes_avulsas
+        WHERE id = 'teste_conexao_massoterapia'
+           OR id ILIKE '%teste%'
+           OR cliente ILIKE '%teste%'
+           OR observacao ILIKE '%teste%'
+           OR procedimento ILIKE '%teste%';
+      `);
+    } catch {}
+
+    try {
+      await db.execute(sql`
+        DELETE FROM atendimentos
+        WHERE id = 'teste_conexao_massoterapia'
+           OR id ILIKE '%teste%'
+           OR nome_cliente ILIKE '%teste%'
+           OR observacoes ILIKE '%teste%'
+           OR servico ILIKE '%teste%';
+      `);
+    } catch {}
+
+    // 3. Remover também de system_integrations_log para não poluir
     await db.execute(sql`
       DELETE FROM system_integrations_log
       WHERE id ILIKE '%teste%'
@@ -1063,6 +1225,14 @@ export async function cleanAllTestRecords(userId?: string) {
 
 export async function deleteMultipleMassoterapiaRecords(userId: string, ids: string[]) {
   if (!ids || ids.length === 0) return { success: true, count: 0 };
+  
+  // 0. Exclusão em lote direta no banco de Gestão de Pacientes
+  try {
+    await deleteMultipleGestaoPacientesMassoterapia(ids);
+  } catch (gDelErr) {
+    console.warn('Aviso ao excluir em lote do banco de Gestão de Pacientes:', gDelErr);
+  }
+
   let deletedCount = 0;
   for (const id of ids) {
     try {
@@ -1078,4 +1248,497 @@ export async function deleteMultipleMassoterapiaRecords(userId: string, ids: str
   }
   return { success: true, count: deletedCount };
 }
+
+export interface GestaoSessionResult {
+  id: string;
+  clientePaciente: string;
+  valor: number;
+  dataLancamento: string;
+  mesReferencia: string;
+  procedimento: string;
+  tipoSessao: string;
+  profissional: string;
+  formaPagamento?: string;
+  observacao?: string;
+  status: string;
+  origem: string;
+  sourceTable: string;
+  alreadyInFinance: boolean;
+  createdAt?: string;
+}
+
+// Busca aprofundada de lançamentos de sessões no banco de dados (salvo pelo Sistema de Gestão de Pessoas de Massoterapia)
+export async function fetchGestaoMassoterapiaSessionsFromDatabase(userId: string, mesReferencia?: string) {
+  try {
+    const isOsaias =
+      !userId ||
+      userId?.toLowerCase().includes('osaias') ||
+      userId?.toLowerCase() === 'osaiasbrito@gmail.com';
+    const effectiveUserId = isOsaias ? 'osaiasbrito@gmail.com' : userId;
+
+    // 1. Obter todos os IDs atuais já ativos no financeiro (renda_massoterapia)
+    const existingFinanceRecords = await db.select().from(rendaMassoterapia);
+    const existingFinanceIds = new Set(existingFinanceRecords.map((r) => r.id));
+
+    const allSessions: GestaoSessionResult[] = [];
+    const seenIds = new Set<string>();
+
+    // Helper para adicionar sem duplicar na visualização
+    const addSession = (session: GestaoSessionResult) => {
+      if (seenIds.has(session.id)) return;
+      seenIds.add(session.id);
+      allSessions.push(session);
+    };
+
+    // 2. Buscar da tabela sessoes_avulsas (Preenchida pelo Sistema de Gestão de Pessoas)
+    try {
+      const sessoesAvulsasRes = await db.execute(sql`
+        SELECT * FROM sessoes_avulsas 
+        ORDER BY created_at DESC, data_lancamento DESC 
+        LIMIT 200
+      `);
+      for (const row of (sessoesAvulsasRes.rows || []) as any[]) {
+        const id = String(row.id || `sessao_${Date.now()}`);
+        const data = String(row.data_lancamento || row.data_sessao || row.data || '').substring(0, 10) || new Date().toISOString().substring(0, 10);
+        const refMonth = row.mes_referencia || data.substring(0, 7);
+        const cliente = row.cliente_paciente || row.cliente || row.paciente || 'Cliente';
+        const procedimento = row.procedimento || row.tecnicas || 'Massoterapia';
+        const valor = Number(row.valor) || 0;
+
+        addSession({
+          id,
+          clientePaciente: cliente,
+          valor,
+          dataLancamento: data,
+          mesReferencia: refMonth,
+          procedimento,
+          tipoSessao: row.tipo_sessao || row.tipo || 'Sessão Avulsa',
+          profissional: row.profissional || 'Osaias Brito',
+          formaPagamento: row.forma_pagamento || 'PIX',
+          observacao: row.observacao || `${row.tipo_sessao || 'Sessão Avulsa'} - ${procedimento}`,
+          status: row.status || 'Realizado',
+          origem: row.origem || 'Sistema de Gestão de Pessoas',
+          sourceTable: 'sessoes_avulsas',
+          alreadyInFinance: existingFinanceIds.has(id),
+          createdAt: row.created_at ? new Date(row.created_at).toISOString() : undefined,
+        });
+      }
+    } catch (e) {
+      console.warn('Tabela sessoes_avulsas não consultada ou indisponível:', e);
+    }
+
+    // 3. Buscar da tabela atendimentos (Alternativa do Sistema de Gestão de Pessoas)
+    try {
+      const atendimentosRes = await db.execute(sql`
+        SELECT * FROM atendimentos 
+        ORDER BY created_at DESC, data DESC 
+        LIMIT 200
+      `);
+      for (const row of (atendimentosRes.rows || []) as any[]) {
+        const id = String(row.id || `atend_${Date.now()}`);
+        const data = String(row.data_atendimento || row.data || '').substring(0, 10) || new Date().toISOString().substring(0, 10);
+        const refMonth = data.substring(0, 7);
+        const cliente = row.nome_cliente || row.cliente || row.paciente || 'Cliente';
+        const procedimento = row.servico || row.procedimento || 'Massoterapia';
+        const valor = Number(row.valor) || 0;
+
+        addSession({
+          id,
+          clientePaciente: cliente,
+          valor,
+          dataLancamento: data,
+          mesReferencia: refMonth,
+          procedimento,
+          tipoSessao: row.tipo || 'Sessão Avulsa',
+          profissional: row.profissional || 'Osaias Brito',
+          observacao: row.observacoes || `${row.tipo || 'Sessão Avulsa'} - ${procedimento}`,
+          status: row.status || 'Realizado',
+          origem: row.origem || 'Sistema de Gestão de Pessoas',
+          sourceTable: 'atendimentos',
+          alreadyInFinance: existingFinanceIds.has(id),
+          createdAt: row.created_at ? new Date(row.created_at).toISOString() : undefined,
+        });
+      }
+    } catch (e) {
+      console.warn('Tabela atendimentos não consultada:', e);
+    }
+
+    // 4. Buscar da tabela renda_extra (Massoterapia / Serviços)
+    try {
+      const extraRes = await db.select().from(rendaExtra);
+      for (const row of extraRes) {
+        const id = String(row.id);
+        const data = String(row.data || '').substring(0, 10) || new Date().toISOString().substring(0, 10);
+        const refMonth = row.mesReferencia || data.substring(0, 7);
+        const cliente = row.clientePaciente || 'Cliente';
+        const procedimento = row.procedimento || row.descricao || 'Massoterapia';
+        const valor = Number(row.valor) || 0;
+
+        addSession({
+          id,
+          clientePaciente: cliente,
+          valor,
+          dataLancamento: data,
+          mesReferencia: refMonth,
+          procedimento,
+          tipoSessao: row.tipo || 'Sessão Avulsa',
+          profissional: 'Osaias Brito',
+          observacao: row.observacao || `${row.tipo || 'Sessão Avulsa'} - ${procedimento}`,
+          status: 'Realizado',
+          origem: row.origem || 'Sistema de Gestão de Pessoas (Renda Extra)',
+          sourceTable: 'renda_extra',
+          alreadyInFinance: existingFinanceIds.has(id) || existingFinanceIds.has(`extra_${id}`),
+          createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : undefined,
+        });
+      }
+    } catch (e) {
+      console.warn('Tabela renda_extra não consultada:', e);
+    }
+
+    // 5. Buscar da tabela system_integrations_log
+    try {
+      const logs = await db.select().from(systemIntegrationsLog);
+      for (const log of logs) {
+        const payload: any = log.payload || {};
+        const isTest =
+          (log.action || '').toUpperCase().includes('TESTE') ||
+          (log.clientName && log.clientName.toLowerCase().includes('teste')) ||
+          payload.isTest === true;
+        if (isTest) continue;
+
+        const id = String(payload.id || payload.incomeId || payload.sessionId || log.id);
+        const data = String(payload.date || payload.data || (log.createdAt ? new Date(log.createdAt).toISOString().substring(0, 10) : new Date().toISOString().substring(0, 10))).substring(0, 10);
+        const refMonth = payload.referenceMonth || payload.mes_referencia || data.substring(0, 7);
+        const cliente = log.clientName || payload.clientName || payload.clientePaciente || payload.nomeCliente || 'Cliente';
+        const procedimento = payload.procedimento || payload.servico || payload.description || 'Massoterapia';
+        const valor = Number(log.amount !== null && log.amount !== undefined ? log.amount : (payload.valor || payload.amount || 0)) || 0;
+
+        addSession({
+          id,
+          clientePaciente: cliente,
+          valor,
+          dataLancamento: data,
+          mesReferencia: refMonth,
+          procedimento,
+          tipoSessao: payload.tipo || payload.tipoSessao || 'Sessão Avulsa',
+          profissional: payload.profissional || 'Osaias Brito',
+          observacao: log.description || payload.observacao || `${payload.tipo || 'Sessão Avulsa'} - ${procedimento}`,
+          status: payload.status || 'Realizado',
+          origem: log.systemName || 'Sistema de Gestão de Pessoas',
+          sourceTable: 'system_integrations_log',
+          alreadyInFinance: existingFinanceIds.has(id),
+          createdAt: log.createdAt ? new Date(log.createdAt).toISOString() : undefined,
+        });
+      }
+    } catch (e) {
+      console.warn('Tabela system_integrations_log não consultada:', e);
+    }
+
+    // 6. Incluir os registros existentes de renda_massoterapia
+    for (const r of existingFinanceRecords) {
+      if (r.id.toLowerCase().includes('teste') || (r.clientePaciente && r.clientePaciente.toLowerCase().includes('teste'))) {
+        continue;
+      }
+      const data = String(r.dataLancamento || '').substring(0, 10) || new Date().toISOString().substring(0, 10);
+      const refMonth = r.mesReferencia || data.substring(0, 7);
+
+      addSession({
+        id: r.id,
+        clientePaciente: r.clientePaciente || r.clientName || 'Cliente',
+        valor: Number(r.valor) || 0,
+        dataLancamento: data,
+        mesReferencia: refMonth,
+        procedimento: r.procedimento || r.tecnicas || 'Massoterapia',
+        tipoSessao: r.tipoSessao || r.tipo || 'Sessão Avulsa',
+        profissional: r.profissional || 'Osaias Brito',
+        observacao: r.observacao || '',
+        status: r.status || 'Realizado',
+        origem: r.origem || 'Gestão Financeira (PostgreSQL)',
+        sourceTable: 'renda_massoterapia',
+        alreadyInFinance: true,
+        createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : undefined,
+      });
+    }
+
+    // Ordenar por data decrescente
+    allSessions.sort((a, b) => b.dataLancamento.localeCompare(a.dataLancamento));
+
+    // Filtrar por mês se especificado e não for "TODOS"
+    const filteredSessions = (mesReferencia && mesReferencia !== 'TODOS')
+      ? allSessions.filter((s) => s.mesReferencia === mesReferencia || s.dataLancamento.startsWith(mesReferencia))
+      : allSessions;
+
+    const totalAmount = filteredSessions.reduce((sum, s) => sum + s.valor, 0);
+    const pendingImport = filteredSessions.filter((s) => !s.alreadyInFinance).length;
+    const alreadyImported = filteredSessions.filter((s) => s.alreadyInFinance).length;
+
+    return {
+      success: true,
+      database: 'PostgreSQL (Supabase - Gestão de Pessoas & Financeiro)',
+      tablesChecked: ['sessoes_avulsas', 'atendimentos', 'renda_massoterapia', 'renda_extra', 'system_integrations_log'],
+      mesReferencia: mesReferencia || 'TODOS',
+      totalCount: filteredSessions.length,
+      pendingImport,
+      alreadyImported,
+      totalAmount,
+      sessions: filteredSessions,
+    };
+  } catch (error: any) {
+    console.error('Falha ao buscar sessões no banco de dados:', error);
+    throw error;
+  }
+}
+
+// Importa / Sincroniza sessões selecionadas diretamente no sistema financeiro (renda_massoterapia)
+export async function importGestaoMassoterapiaSessions(userId: string, sessions: any[]) {
+  if (!sessions || !Array.isArray(sessions) || sessions.length === 0) {
+    return { success: true, count: 0, imported: [] };
+  }
+
+  const isOsaias =
+    !userId ||
+    userId?.toLowerCase().includes('osaias') ||
+    userId?.toLowerCase() === 'osaiasbrito@gmail.com';
+  const effectiveUserId = isOsaias ? 'osaiasbrito@gmail.com' : userId;
+
+  const importedRecords = [];
+
+  for (const item of sessions) {
+    try {
+      const id = String(item.id || `sessao_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`);
+      const valor = Number(item.valor !== undefined ? item.valor : item.amount) || 0;
+      const dataLancamento = String(item.dataLancamento || item.data || item.date || new Date().toISOString().substring(0, 10)).substring(0, 10);
+      const clientePaciente = item.clientePaciente || item.clientName || item.cliente || item.paciente || 'Cliente';
+      const procedimento = item.procedimento || item.tecnicas || item.servico || 'Massoterapia';
+      const tipo = item.tipoSessao || item.tipo || 'Sessão Avulsa';
+      const status = item.status || 'Realizado';
+      const profissional = item.profissional || 'Osaias Brito';
+      const mesReferencia = item.mesReferencia || dataLancamento.substring(0, 7);
+      const origem = item.origem || 'Sistema de Gestão de Pessoas';
+      const observacao = item.observacao || `${tipo} - ${procedimento} • ${clientePaciente}`;
+
+      const saved = await upsertMassoterapiaRecord(effectiveUserId, {
+        id,
+        valor,
+        dataLancamento,
+        observacao,
+        clientePaciente,
+        clientName: clientePaciente,
+        procedimento,
+        tecnicas: procedimento,
+        tipo,
+        tipoSessao: tipo,
+        status,
+        profissional,
+        mesReferencia,
+        referenceMonth: mesReferencia,
+        origem,
+        dadosExtras: item,
+      });
+
+      importedRecords.push(saved);
+    } catch (e) {
+      console.warn('Erro ao importar sessão individual:', e);
+    }
+  }
+
+  return {
+    success: true,
+    count: importedRecords.length,
+    imported: importedRecords,
+    message: `${importedRecords.length} lançamento(s) de sessão sincronizado(s) com sucesso no sistema financeiro!`,
+  };
+}
+
+// Importa automaticamente os lançamentos de sessões avulsas existentes no banco de Gestão de Pessoas para o fluxo de receitas financeiras
+export async function autoImportGestaoMassoterapiaSessions(userId: string) {
+  try {
+    const isOsaias =
+      !userId ||
+      userId?.toLowerCase().includes('osaias') ||
+      userId?.toLowerCase() === 'osaiasbrito@gmail.com';
+    const effectiveUserId = isOsaias ? 'osaiasbrito@gmail.com' : userId;
+
+    // 1. Buscar todas as sessões das tabelas do banco de gestão
+    const dbResult = await fetchGestaoMassoterapiaSessionsFromDatabase(effectiveUserId, 'TODOS');
+    if (!dbResult || !dbResult.sessions || dbResult.sessions.length === 0) {
+      return {
+        success: true,
+        count: 0,
+        totalAmount: 0,
+        imported: [],
+        message: 'Nenhum lançamento pendente encontrado no banco de dados de Gestão de Pessoas.',
+      };
+    }
+
+    // 2. Filtrar apenas as sessões pendentes que ainda NÃO foram importadas para o financeiro
+    const pendingSessions = dbResult.sessions.filter(
+      (s: any) => !s.alreadyInFinance && !s.id?.toLowerCase().includes('teste')
+    );
+
+    if (pendingSessions.length === 0) {
+      return {
+        success: true,
+        count: 0,
+        totalAmount: 0,
+        imported: [],
+        message: 'Todos os lançamentos de sessões avulsas já estão integrados ao fluxo de receitas financeiras.',
+      };
+    }
+
+    // 3. Importar automaticamente as sessões pendentes para renda_massoterapia
+    const importRes = await importGestaoMassoterapiaSessions(effectiveUserId, pendingSessions);
+    const totalAmount = (importRes.imported || []).reduce(
+      (acc: number, curr: any) => acc + (Number(curr.valor) || 0),
+      0
+    );
+
+    return {
+      success: true,
+      count: importRes.count,
+      totalAmount,
+      imported: importRes.imported,
+      message: `${importRes.count} lançamento(s) de sessão avulsa importado(s) automaticamente para o fluxo de receitas financeiras (Total: R$ ${totalAmount.toFixed(2)})!`,
+    };
+  } catch (error: any) {
+    console.warn('Erro ao executar autoImportGestaoMassoterapiaSessions:', error);
+    return {
+      success: false,
+      count: 0,
+      totalAmount: 0,
+      imported: [],
+      error: error.message,
+    };
+  }
+}
+
+// Criação de lançamento de Sessão Avulsa (Compatível com o formulário de Gestão de Pessoas de Massoterapia da tela Print 02)
+export async function createGestaoMassoterapiaDemoSession(userId: string, data?: any) {
+  const isOsaias =
+    !userId ||
+    userId?.toLowerCase().includes('osaias') ||
+    userId?.toLowerCase() === 'osaiasbrito@gmail.com';
+  const effectiveUserId = isOsaias ? 'osaiasbrito@gmail.com' : userId;
+
+  const id = `sessao_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+  const dateStr = data?.data || data?.dataLancamento || new Date().toISOString().substring(0, 10);
+  const cliente = data?.cliente || data?.clientePaciente || 'Mariana Albuquerque';
+  const procedimento = data?.procedimento || data?.tecnicas || 'Massagem Relaxante + Ventosaterapia';
+  const valor = Number(data?.valor) || 160.0;
+  const profissional = data?.profissional || 'Osaias Brito';
+  const formaPagamento = data?.formaPagamento || 'PIX';
+  const observacao = data?.observacao || `Sessão Avulsa - ${procedimento} • Paciente atendido com sucesso.`;
+
+  // 1. Salvar na tabela sessions do banco de Gestão de Pacientes (Supabase)
+  try {
+    const { getGestaoPacientesPool } = await import('./gestaoPacientesDb');
+    const gestaoPool = getGestaoPacientesPool();
+    await gestaoPool.query(
+      `INSERT INTO sessions (
+        id, tenant_id, patient_name, price, scheduled_date, status, procedures, professional_name, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+      ON CONFLICT (id) DO UPDATE SET
+        patient_name = EXCLUDED.patient_name,
+        price = EXCLUDED.price,
+        scheduled_date = EXCLUDED.scheduled_date,
+        status = EXCLUDED.status;`,
+      [
+        id,
+        'tenant-demo-1',
+        cliente,
+        valor,
+        dateStr,
+        'COMPLETED',
+        JSON.stringify([procedimento]),
+        profissional,
+      ]
+    );
+  } catch (sessErr) {
+    console.warn('Aviso ao inserir em sessions do Gestão de Pacientes:', sessErr);
+  }
+
+  // 2. Salvar também em renda_massoterapia para visualização imediata no financeiro e no gestão de pacientes
+  const saved = await upsertMassoterapiaRecord(effectiveUserId, {
+    id,
+    valor,
+    dataLancamento: dateStr,
+    observacao,
+    clientePaciente: cliente,
+    clientName: cliente,
+    procedimento,
+    tecnicas: procedimento,
+    tipo: 'Sessão Avulsa',
+    tipoSessao: 'Sessão Avulsa',
+    status: 'RECEBIDO',
+    profissional,
+    mesReferencia: dateStr.substring(0, 7),
+    referenceMonth: dateStr.substring(0, 7),
+    origem: 'Gestão de Pacientes (Supabase)',
+    dadosExtras: {
+      formaPagamento,
+      criadoVia: 'Formulário Gestão de Pacientes - Atendimento',
+    },
+  });
+
+  return {
+    success: true,
+    message: 'Lançamento de Sessão Avulsa registrado no banco de dados com sucesso!',
+    session: saved,
+  };
+}
+
+// Operações individuais de Abatimentos
+export async function upsertAbatimento(userId: string, data: any) {
+  const id = String(data.id || `abat_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`);
+  const referenceMonth = data.referenceMonth || (data.date ? data.date.substring(0, 7) : 'GLOBAL');
+  const date = data.date || new Date().toISOString().substring(0, 10);
+  const amount = Number(data.amount) || 0;
+
+  const result = await db
+    .insert(abatimentos)
+    .values({
+      id,
+      userId,
+      referenceMonth,
+      date,
+      amount,
+      targetType: data.targetType || 'CREDIT_CARD',
+      cardId: data.cardId ? String(data.cardId) : null,
+      cardName: data.cardName ? String(data.cardName) : null,
+      paymentMethod: data.paymentMethod ? String(data.paymentMethod) : null,
+      paymentMethodId: data.paymentMethodId ? String(data.paymentMethodId) : null,
+      paymentMethodName: data.paymentMethodName ? String(data.paymentMethodName) : null,
+      description: data.description ? String(data.description) : 'Abatimento de Pagamento',
+      sourceMethod: data.sourceMethod ? String(data.sourceMethod) : null,
+      notes: data.notes ? String(data.notes) : null,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: abatimentos.id,
+      set: {
+        referenceMonth,
+        date,
+        amount,
+        targetType: data.targetType || 'CREDIT_CARD',
+        cardId: data.cardId ? String(data.cardId) : null,
+        cardName: data.cardName ? String(data.cardName) : null,
+        paymentMethod: data.paymentMethod ? String(data.paymentMethod) : null,
+        paymentMethodId: data.paymentMethodId ? String(data.paymentMethodId) : null,
+        paymentMethodName: data.paymentMethodName ? String(data.paymentMethodName) : null,
+        description: data.description ? String(data.description) : 'Abatimento de Pagamento',
+        sourceMethod: data.sourceMethod ? String(data.sourceMethod) : null,
+        notes: data.notes !== undefined ? (data.notes || null) : null,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+
+  return result[0];
+}
+
+export async function deleteAbatimentoRecord(userId: string, id: string) {
+  await db.delete(abatimentos).where(and(eq(abatimentos.id, id), eq(abatimentos.userId, userId)));
+  return { success: true, id };
+}
+
 

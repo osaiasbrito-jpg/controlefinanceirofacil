@@ -13,6 +13,7 @@ export interface DbSyncPayload {
   installmentPurchases?: any[];
   categories?: any[];
   budgets?: any[];
+  abatimentos?: any[];
   settings?: any;
 }
 
@@ -269,3 +270,111 @@ export async function deleteMultipleMassoterapiaFromPostgres(ids: string[], user
     return null;
   }
 }
+
+// Buscar dados de lançamentos no banco de dados (salvo pelo Sistema de Gestão de Pessoas de Massoterapia - Sessões Avulsas)
+export async function fetchDatabaseSessions(userId: string, mesReferencia?: string, idToken?: string) {
+  try {
+    const headers: Record<string, string> = {};
+    if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
+    const params = new URLSearchParams({ userId });
+    if (mesReferencia) params.set('mesReferencia', mesReferencia);
+
+    const res = await resilientFetch(`/api/renda-massoterapia/database-sessions?${params.toString()}`, { headers });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.warn('Aviso ao buscar lançamentos no banco de dados:', error);
+    return { success: false, sessions: [], totalCount: 0, error: String(error) };
+  }
+}
+
+// Importar sessões selecionadas do banco de dados para o sistema financeiro
+export async function importDatabaseSessions(sessions: any[], userId: string, idToken?: string) {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
+    const res = await resilientFetch('/api/renda-massoterapia/import-database-sessions', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ userId, sessions }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.warn('Aviso ao importar sessões no PostgreSQL:', error);
+    return { success: false, count: 0, error: String(error) };
+  }
+}
+
+// Criar lançamento de Sessão Avulsa diretamente no banco (Simulação / Teste do formulário da tela Print 02)
+export async function createGestaoSessionInDatabase(sessionData: any, userId: string, idToken?: string) {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
+    const res = await resilientFetch('/api/renda-massoterapia/create-gestao-session', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ...sessionData, userId }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.warn('Aviso ao registrar sessão avulsa:', error);
+    return { success: false, error: String(error) };
+  }
+}
+
+// Importar automaticamente os lançamentos de sessões avulsas existentes no banco de Gestão de Pessoas para o fluxo de receitas financeiras
+export async function autoImportDatabaseSessions(userId: string, idToken?: string) {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
+    const res = await resilientFetch('/api/renda-massoterapia/auto-import', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ userId }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.warn('Aviso ao executar importação automática do banco de gestão:', error);
+    return { success: false, count: 0, totalAmount: 0, error: String(error) };
+  }
+}
+
+// Salvar / atualizar Abatimento de Pagamento no PostgreSQL
+export async function saveAbatimentoToPostgres(data: any, userId: string, idToken?: string) {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
+    const res = await resilientFetch('/api/abatimentos', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ...data, userId }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.warn('Aviso ao salvar abatimento no PostgreSQL:', error);
+    return null;
+  }
+}
+
+// Excluir Abatimento de Pagamento no PostgreSQL
+export async function deleteAbatimentoFromPostgres(id: string, userId: string, idToken?: string) {
+  try {
+    const headers: Record<string, string> = {};
+    if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
+    const res = await resilientFetch(`/api/abatimentos/${id}?userId=${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+      headers,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.warn('Aviso ao excluir abatimento no PostgreSQL:', error);
+    return null;
+  }
+}
+
+
