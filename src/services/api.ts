@@ -152,14 +152,25 @@ export async function syncDataToPostgres(payload: DbSyncPayload, idToken?: strin
   }
 }
 
-export async function deleteEntityFromPostgres(table: string, id: string, userId: string, idToken?: string) {
+export async function deleteEntityFromPostgres(
+  table: string,
+  id: string,
+  userId: string,
+  idToken?: string,
+  options?: { deleteFuture?: boolean; deleteAll?: boolean }
+) {
   try {
     const headers: Record<string, string> = {};
     if (idToken) {
       headers['Authorization'] = `Bearer ${idToken}`;
     }
 
-    const res = await resilientFetch(`/api/entity/${encodeURIComponent(table)}/${encodeURIComponent(id)}?userId=${encodeURIComponent(userId)}`, {
+    const params = new URLSearchParams();
+    params.set('userId', userId);
+    if (options?.deleteFuture) params.set('deleteFuture', 'true');
+    if (options?.deleteAll) params.set('deleteAll', 'true');
+
+    const res = await resilientFetch(`/api/entity/${encodeURIComponent(table)}/${encodeURIComponent(id)}?${params.toString()}`, {
       method: 'DELETE',
       headers,
     });

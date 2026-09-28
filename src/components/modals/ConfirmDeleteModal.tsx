@@ -4,7 +4,7 @@ import { AlertTriangle, Trash2, X, Layers, AlertCircle, CheckCircle2 } from 'luc
 export interface ConfirmDeleteModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (deleteAllInstallments?: boolean) => void | Promise<void>;
+  onConfirm: (choice?: 'future' | 'all' | 'single' | boolean) => void | Promise<void>;
   title: string;
   message?: string;
   description?: string;
@@ -42,10 +42,10 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
   const displayMessage = description || message || '';
   const isInstallmentItem = isInstallment || isInstallmentChoice;
 
-  const handleAction = async (deleteAll: boolean) => {
+  const handleAction = async (choice: 'future' | 'all' | 'single' | boolean) => {
     try {
       setIsDeleting(true);
-      await onConfirm(deleteAll);
+      await onConfirm(choice);
     } catch (err) {
       console.error('Erro ao confirmar exclusão:', err);
     } finally {
@@ -90,30 +90,50 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
               </span>
             </div>
 
-            {/* Option A: Delete ALL installments (Default / Primary Choice) */}
+            {/* Option A: Delete THIS and FUTURE installments (Default / Recommended Choice) */}
             <button
               type="button"
               disabled={isDeleting}
-              onClick={() => handleAction(true)}
+              onClick={() => handleAction('future')}
               className="w-full p-3.5 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition-all shadow-md shadow-rose-200 text-left flex items-center justify-between cursor-pointer disabled:opacity-50 group"
             >
               <div className="flex flex-col">
                 <span className="font-extrabold text-sm flex items-center gap-1.5">
                   <Trash2 className="w-4 h-4 text-white" />
-                  Excluir TODAS as parcelas
+                  Excluir este e todos os parcelamentos futuros
                 </span>
                 <span className="text-[11px] text-rose-100 font-normal mt-0.5">
-                  Apaga todas as parcelas de todos os meses do banco de dados
+                  Apaga esta parcela ({installmentDetails?.currentNumber || 1}/{installmentDetails?.total || 1}) e todas as seguintes do banco de dados
                 </span>
               </div>
             </button>
 
-            {/* Option B: Delete ONLY this specific installment */}
+            {/* Option B: Delete ALL installments (if current is not the 1st installment) */}
+            {(installmentDetails?.currentNumber || 1) > 1 && (
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => handleAction('all')}
+                className="w-full p-3 rounded-2xl bg-slate-100 hover:bg-rose-50 text-slate-800 hover:text-rose-700 font-bold text-xs transition-all border border-slate-200 hover:border-rose-200 text-left flex items-center justify-between cursor-pointer disabled:opacity-50"
+              >
+                <div className="flex flex-col">
+                  <span className="font-extrabold text-xs flex items-center gap-1.5">
+                    <Layers className="w-3.5 h-3.5 text-slate-600" />
+                    Excluir TODAS as parcelas ({installmentDetails?.total || 1} parcelas)
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-normal mt-0.5">
+                    Apaga todas as parcelas de todos os meses, incluindo as anteriores
+                  </span>
+                </div>
+              </button>
+            )}
+
+            {/* Option C: Delete ONLY this specific installment */}
             <button
               type="button"
               disabled={isDeleting}
-              onClick={() => handleAction(false)}
-              className="w-full p-3.5 rounded-2xl bg-slate-50 hover:bg-amber-50 text-slate-800 hover:text-amber-900 font-bold text-xs transition-all border border-slate-200 hover:border-amber-300 text-left flex items-center justify-between cursor-pointer disabled:opacity-50"
+              onClick={() => handleAction('single')}
+              className="w-full p-3 rounded-2xl bg-slate-50 hover:bg-amber-50 text-slate-700 hover:text-amber-900 font-bold text-xs transition-all border border-slate-200 hover:border-amber-200 text-left flex items-center justify-between cursor-pointer disabled:opacity-50"
             >
               <div className="flex flex-col">
                 <span className="font-extrabold text-xs">

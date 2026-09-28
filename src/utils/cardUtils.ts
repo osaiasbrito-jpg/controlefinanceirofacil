@@ -47,6 +47,11 @@ export function isPixExpense(
 ): boolean {
   if (!expense) return false;
 
+  // Se o método de pagamento foi definido explicitamente para outro meio diferente de PIX, respeitar a escolha
+  if (expense.paymentMethod && expense.paymentMethod !== 'PIX') {
+    return false;
+  }
+
   // 1. Check explicit paymentMethod
   if (expense.paymentMethod === 'PIX') return true;
 
@@ -95,6 +100,12 @@ export function isBoletoExpense(
   categories: Category[] = []
 ): boolean {
   if (!expense) return false;
+
+  // Se o método de pagamento foi definido explicitamente para outro meio diferente de BOLETO, respeitar a escolha
+  if (expense.paymentMethod && expense.paymentMethod !== 'BOLETO') {
+    return false;
+  }
+
   if (expense.paymentMethod === 'BOLETO') return true;
 
   const cardName = (expense.cardName || '').toLowerCase().trim();
@@ -129,6 +140,11 @@ export function isDebitExpense(
   categories: Category[] = []
 ): boolean {
   if (!expense) return false;
+
+  if (expense.paymentMethod && expense.paymentMethod !== 'CARTAO_DEBITO') {
+    return false;
+  }
+
   if (expense.paymentMethod === 'CARTAO_DEBITO') return true;
 
   const cardName = (expense.cardName || '').toLowerCase().trim();
@@ -163,6 +179,11 @@ export function isCashExpense(
   categories: Category[] = []
 ): boolean {
   if (!expense) return false;
+
+  if (expense.paymentMethod && expense.paymentMethod !== 'DINHEIRO') {
+    return false;
+  }
+
   if (expense.paymentMethod === 'DINHEIRO') return true;
 
   const cardName = (expense.cardName || '').toLowerCase().trim();
@@ -194,21 +215,23 @@ export function isCashExpense(
 
 /**
  * Retorna a forma de pagamento efetiva de uma despesa, dando prioridade
- * a PIX, Boleto, Débito e Dinheiro caso identificados na categoria ou meio.
+ * a escolhas explícitas, depois PIX, Boleto, Débito e Dinheiro caso identificados na categoria ou meio.
  */
 export function resolveEffectivePaymentMethod(
   expense: Partial<Expense>,
   categories: Category[] = [],
   registeredCards: CreditCard[] = []
 ): PaymentMethod {
+  if (expense.paymentMethod === 'BOLETO') return 'BOLETO';
+  if (expense.paymentMethod === 'PIX') return 'PIX';
+  if (expense.paymentMethod === 'CARTAO_DEBITO') return 'CARTAO_DEBITO';
+  if (expense.paymentMethod === 'DINHEIRO') return 'DINHEIRO';
+  if (expense.paymentMethod === 'CARTAO_CREDITO') return 'CARTAO_CREDITO';
+
   if (isPixExpense(expense, categories)) return 'PIX';
   if (isBoletoExpense(expense, categories)) return 'BOLETO';
   if (isDebitExpense(expense, categories)) return 'CARTAO_DEBITO';
   if (isCashExpense(expense, categories)) return 'DINHEIRO';
-
-  if (expense.paymentMethod === 'CARTAO_CREDITO') {
-    return 'CARTAO_CREDITO';
-  }
 
   if (expense.cardId || expense.cardName) {
     const canonical = getCanonicalCardInfo(expense.cardId, expense.cardName, registeredCards);
@@ -217,7 +240,7 @@ export function resolveEffectivePaymentMethod(
     }
   }
 
-  return expense.paymentMethod || 'PIX';
+  return 'PIX';
 }
 
 /**
@@ -231,6 +254,14 @@ export function isExpenseMatchingPaymentMethod(
   paymentMethods: CustomPaymentMethod[] = [],
   registeredCards: CreditCard[] = []
 ): boolean {
+  const effective = resolveEffectivePaymentMethod(expense, categories, registeredCards);
+
+  // Se o destino é um dos meios padrão (PIX, BOLETO, CARTAO_DEBITO, DINHEIRO)
+  if (targetMethod === 'PIX' || targetMethod === 'BOLETO' || targetMethod === 'CARTAO_DEBITO' || targetMethod === 'DINHEIRO') {
+    return effective === targetMethod;
+  }
+
+  // Se o filtro for por um método personalizado cadastrado via ID
   if (targetMethodId) {
     if (expense.paymentMethodId === targetMethodId) return true;
     const pm = paymentMethods.find((p) => p.id === targetMethodId);
@@ -239,20 +270,6 @@ export function isExpenseMatchingPaymentMethod(
     }
   }
 
-  if (targetMethod === 'PIX') {
-    return isPixExpense(expense, categories);
-  }
-  if (targetMethod === 'BOLETO') {
-    return isBoletoExpense(expense, categories);
-  }
-  if (targetMethod === 'CARTAO_DEBITO') {
-    return isDebitExpense(expense, categories);
-  }
-  if (targetMethod === 'DINHEIRO') {
-    return isCashExpense(expense, categories);
-  }
-
-  const effective = resolveEffectivePaymentMethod(expense, categories, registeredCards);
   return effective === targetMethod;
 }
 

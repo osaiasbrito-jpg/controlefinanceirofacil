@@ -230,10 +230,22 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
       return;
     }
 
-    const selectedCat = categories.find((c) => c.id === categoryId) || categories[0];
+    const rawSelectedCat = categories.find((c) => c.id === categoryId) || categories[0];
+    let selectedCat = rawSelectedCat;
+
+    // Se o usuário selecionou PIX mas a categoria ainda é Boleto, muda automaticamente para a categoria Pix
+    if (paymentMethod === 'PIX' && (selectedCat?.name.toLowerCase().trim() === 'boleto' || /\bboleto\b/i.test(selectedCat?.name || ''))) {
+      const pixCat = categories.find((c) => c.name.toLowerCase().trim() === 'pix' || /\bpix\b/i.test(c.name));
+      if (pixCat) selectedCat = pixCat;
+    }
+    // Se o usuário selecionou BOLETO mas a categoria ainda é Pix, muda automaticamente para a categoria Boleto
+    else if (paymentMethod === 'BOLETO' && (selectedCat?.name.toLowerCase().trim() === 'pix' || /\bpix\b/i.test(selectedCat?.name || ''))) {
+      const boletoCat = categories.find((c) => c.name.toLowerCase().trim() === 'boleto' || /\bboleto\b/i.test(c.name));
+      if (boletoCat) selectedCat = boletoCat;
+    }
+
     const categoryName = selectedCat?.name || 'Geral';
-    const isPixCat = categoryName.toLowerCase().trim() === 'pix' || /\bpix\b/i.test(categoryName);
-    const effectivePaymentMethod: PaymentMethod = isPixCat ? 'PIX' : paymentMethod;
+    const effectivePaymentMethod: PaymentMethod = paymentMethod;
 
     if (effectivePaymentMethod === 'CARTAO_CREDITO' && (!cardId || creditCards.length === 0)) {
       setErrorMsg('Por favor, selecione ou cadastre um cartão de crédito.');
@@ -271,7 +283,7 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
             cardName:
               effectivePaymentMethod === 'CARTAO_CREDITO'
                 ? selectedCard?.name || expenseToEdit.cardName || 'Cartão de Crédito'
-                : undefined,
+                : effectivePaymentMethod,
             status,
             notes: notes.trim(),
           },
@@ -315,12 +327,12 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
           referenceMonth,
           categoryId: selectedCat?.id || '',
           categoryName,
-          paymentMethod,
+          paymentMethod: effectivePaymentMethod,
           paymentMethodId:
-            paymentMethod !== 'CARTAO_CREDITO' && paymentMethodId ? paymentMethodId : undefined,
-          paymentMethodName: paymentMethod !== 'CARTAO_CREDITO' ? customMethodName : undefined,
-          cardId: paymentMethod === 'CARTAO_CREDITO' ? cardId : undefined,
-          cardName: paymentMethod === 'CARTAO_CREDITO' ? cardName : undefined,
+            effectivePaymentMethod !== 'CARTAO_CREDITO' && paymentMethodId ? paymentMethodId : undefined,
+          paymentMethodName: effectivePaymentMethod !== 'CARTAO_CREDITO' ? customMethodName : undefined,
+          cardId: effectivePaymentMethod === 'CARTAO_CREDITO' ? cardId : undefined,
+          cardName: effectivePaymentMethod === 'CARTAO_CREDITO' ? cardName : effectivePaymentMethod,
           status,
           notes: notes.trim(),
         });
@@ -738,11 +750,13 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
                   if (lowerName === 'pix' || /\bpix\b/i.test(lowerName)) {
                     setPaymentMethod('PIX');
                     const pixPm = paymentMethods.find((pm) => pm.type === 'PIX');
-                    if (pixPm) setPaymentMethodId(pixPm.id);
+                    setPaymentMethodId(pixPm ? pixPm.id : '');
+                    setErrorMsg(null);
                   } else if (lowerName === 'boleto' || /\bboleto\b/i.test(lowerName)) {
                     setPaymentMethod('BOLETO');
                     const bolPm = paymentMethods.find((pm) => pm.type === 'BOLETO');
-                    if (bolPm) setPaymentMethodId(bolPm.id);
+                    setPaymentMethodId(bolPm ? bolPm.id : '');
+                    setErrorMsg(null);
                   }
                 }
               }}
@@ -775,10 +789,35 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
                   type="button"
                   key={method.id}
                   onClick={() => {
-                    setPaymentMethod(method.id);
-                    const matching = paymentMethods.find((pm) => pm.type === method.id);
-                    if (matching) setPaymentMethodId(matching.id);
-                    else setPaymentMethodId('');
+                    const newMethod = method.id;
+                    setPaymentMethod(newMethod);
+                    const matching = paymentMethods.find((pm) => pm.type === newMethod);
+                    setPaymentMethodId(matching ? matching.id : '');
+                    setErrorMsg(null);
+
+                    // Se alternar entre PIX e Boleto, ajusta automaticamente a categoria correspondente sem erros
+                    const currentCat = categories.find((c) => c.id === categoryId);
+                    const currentCatName = (currentCat?.name || '').toLowerCase().trim();
+
+                    if (newMethod === 'PIX') {
+                      if (currentCatName === 'boleto' || /\bboleto\b/i.test(currentCatName)) {
+                        const targetPixCat = categories.find(
+                          (c) => c.name.toLowerCase().trim() === 'pix' || /\bpix\b/i.test(c.name)
+                        );
+                        if (targetPixCat) {
+                          setCategoryId(targetPixCat.id);
+                        }
+                      }
+                    } else if (newMethod === 'BOLETO') {
+                      if (currentCatName === 'pix' || /\bpix\b/i.test(currentCatName)) {
+                        const targetBoletoCat = categories.find(
+                          (c) => c.name.toLowerCase().trim() === 'boleto' || /\bboleto\b/i.test(c.name)
+                        );
+                        if (targetBoletoCat) {
+                          setCategoryId(targetBoletoCat.id);
+                        }
+                      }
+                    }
                   }}
                   className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all border ${
                     paymentMethod === method.id

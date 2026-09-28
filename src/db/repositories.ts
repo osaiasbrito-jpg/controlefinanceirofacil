@@ -1,4 +1,4 @@
-import { db } from './index';
+import { db, withDbRetry } from './index';
 import {
   users,
   userSettings,
@@ -690,12 +690,75 @@ export async function syncUserData(payload: SyncDataPayload) {
 }
 
 // Single Entity Operations
-export async function deleteEntity(table: string, id: string, userId: string) {
+export async function deleteEntity(
+  table: string,
+  id: string,
+  userId: string,
+  options?: { deleteFutureInstallments?: boolean; deleteAllInstallments?: boolean }
+) {
   try {
     switch (table) {
-      case 'expenses':
-        await db.delete(expenses).where(and(eq(expenses.id, id), eq(expenses.userId, userId)));
+      case 'expenses': {
+        const targetExpList = await withDbRetry(() =>
+          db.select().from(expenses).where(and(eq(expenses.id, id), eq(expenses.userId, userId)))
+        );
+        const targetExp = targetExpList[0];
+
+        if (targetExp && (options?.deleteFutureInstallments || options?.deleteAllInstallments)) {
+          if (targetExp.installmentPurchaseId) {
+            if (options.deleteAllInstallments || (targetExp.installmentNumber && targetExp.installmentNumber <= 1)) {
+              await withDbRetry(() =>
+                db.delete(expenses).where(and(eq(expenses.installmentPurchaseId, targetExp.installmentPurchaseId), eq(expenses.userId, userId)))
+              );
+              await withDbRetry(() =>
+                db.delete(installmentPurchases).where(and(eq(installmentPurchases.id, targetExp.installmentPurchaseId), eq(installmentPurchases.userId, userId)))
+              );
+            } else {
+              // Excluir esta parcela e todas as parcelas futuras vinculadas
+              await withDbRetry(() =>
+                db.delete(expenses).where(
+                  and(
+                    eq(expenses.installmentPurchaseId, targetExp.installmentPurchaseId),
+                    eq(expenses.userId, userId),
+                    sql`(${expenses.installmentNumber} >= ${targetExp.installmentNumber || 1} OR ${expenses.date} >= ${targetExp.date})`
+                  )
+                )
+              );
+            }
+          } else if (targetExp.isInstallment) {
+            const baseDesc = targetExp.description.replace(/\s*\(\d+\/\d+\)\s*$/, '').trim();
+            if (options.deleteAllInstallments || (targetExp.installmentNumber && targetExp.installmentNumber <= 1)) {
+              await withDbRetry(() =>
+                db.delete(expenses).where(
+                  and(
+                    eq(expenses.userId, userId),
+                    sql`(${expenses.description} LIKE ${baseDesc + '%'} AND ${expenses.isInstallment} = true)`
+                  )
+                )
+              );
+            } else {
+              await withDbRetry(() =>
+                db.delete(expenses).where(
+                  and(
+                    eq(expenses.userId, userId),
+                    sql`(${expenses.description} LIKE ${baseDesc + '%'} AND ${expenses.isInstallment} = true)`,
+                    sql`(${expenses.installmentNumber} >= ${targetExp.installmentNumber || 1} OR ${expenses.date} >= ${targetExp.date})`
+                  )
+                )
+              );
+            }
+          } else {
+            await withDbRetry(() =>
+              db.delete(expenses).where(and(eq(expenses.id, id), eq(expenses.userId, userId)))
+            );
+          }
+        } else {
+          await withDbRetry(() =>
+            db.delete(expenses).where(and(eq(expenses.id, id), eq(expenses.userId, userId)))
+          );
+        }
         break;
+      }
       case 'salaries':
         await db.delete(salaries).where(and(eq(salaries.id, id), eq(salaries.userId, userId)));
         break;
@@ -722,7 +785,12 @@ export async function deleteEntity(table: string, id: string, userId: string) {
         await db.delete(budgets).where(and(eq(budgets.id, id), eq(budgets.userId, userId)));
         break;
       case 'installment_purchases':
-        await db.delete(installmentPurchases).where(and(eq(installmentPurchases.id, id), eq(installmentPurchases.userId, userId)));
+        await withDbRetry(() =>
+          db.delete(installmentPurchases).where(and(eq(installmentPurchases.id, id), eq(installmentPurchases.userId, userId)))
+        );
+        await withDbRetry(() =>
+          db.delete(expenses).where(and(eq(expenses.installmentPurchaseId, id), eq(expenses.userId, userId)))
+        );
         break;
       default:
         throw new Error(`Tabela desconhecida: ${table}`);
@@ -765,7 +833,7 @@ export async function testDatabaseConnection() {
 // Operações Dedicadas para Renda Massoterapia e Sincronização de Integrações
 export async function syncIntegrationsLogToMassoterapia(): Promise<number> {
   try {
-    const logs = await db.select().from(systemIntegrationsLog);
+    const logs = await withDbRetry(() => db.select().from(systemIntegrationsLog));
     if (!logs || logs.length === 0) return 0;
     let count = 0;
 
@@ -861,7 +929,7 @@ export async function syncIntegrationsLogToMassoterapia(): Promise<number> {
 
     // Sincronizar também tabela renda_extra se tiver registros
     try {
-      const extras = await db.select().from(rendaExtra);
+      const extras = await withDbRetry(() => db.select().from(rendaExtra));
       for (const ex of extras) {
         const id = ex.id.startsWith('extra_') ? ex.id : `extra_${ex.id}`;
         const valor = Number(ex.valor) || 0;
@@ -1277,7 +1345,7 @@ export async function fetchGestaoMassoterapiaSessionsFromDatabase(userId: string
     const effectiveUserId = isOsaias ? 'osaiasbrito@gmail.com' : userId;
 
     // 1. Obter todos os IDs atuais já ativos no financeiro (renda_massoterapia)
-    const existingFinanceRecords = await db.select().from(rendaMassoterapia);
+    const existingFinanceRecords = await withDbRetry(() => db.select().from(rendaMassoterapia));
     const existingFinanceIds = new Set(existingFinanceRecords.map((r) => r.id));
 
     const allSessions: GestaoSessionResult[] = [];
@@ -1292,11 +1360,11 @@ export async function fetchGestaoMassoterapiaSessionsFromDatabase(userId: string
 
     // 2. Buscar da tabela sessoes_avulsas (Preenchida pelo Sistema de Gestão de Pessoas)
     try {
-      const sessoesAvulsasRes = await db.execute(sql`
+      const sessoesAvulsasRes = await withDbRetry(() => db.execute(sql`
         SELECT * FROM sessoes_avulsas 
         ORDER BY created_at DESC, data_lancamento DESC 
         LIMIT 200
-      `);
+      `));
       for (const row of (sessoesAvulsasRes.rows || []) as any[]) {
         const id = String(row.id || `sessao_${Date.now()}`);
         const data = String(row.data_lancamento || row.data_sessao || row.data || '').substring(0, 10) || new Date().toISOString().substring(0, 10);
@@ -1329,11 +1397,11 @@ export async function fetchGestaoMassoterapiaSessionsFromDatabase(userId: string
 
     // 3. Buscar da tabela atendimentos (Alternativa do Sistema de Gestão de Pessoas)
     try {
-      const atendimentosRes = await db.execute(sql`
+      const atendimentosRes = await withDbRetry(() => db.execute(sql`
         SELECT * FROM atendimentos 
         ORDER BY created_at DESC, data DESC 
         LIMIT 200
-      `);
+      `));
       for (const row of (atendimentosRes.rows || []) as any[]) {
         const id = String(row.id || `atend_${Date.now()}`);
         const data = String(row.data_atendimento || row.data || '').substring(0, 10) || new Date().toISOString().substring(0, 10);
@@ -1365,7 +1433,7 @@ export async function fetchGestaoMassoterapiaSessionsFromDatabase(userId: string
 
     // 4. Buscar da tabela renda_extra (Massoterapia / Serviços)
     try {
-      const extraRes = await db.select().from(rendaExtra);
+      const extraRes = await withDbRetry(() => db.select().from(rendaExtra));
       for (const row of extraRes) {
         const id = String(row.id);
         const data = String(row.data || '').substring(0, 10) || new Date().toISOString().substring(0, 10);
@@ -1397,7 +1465,7 @@ export async function fetchGestaoMassoterapiaSessionsFromDatabase(userId: string
 
     // 5. Buscar da tabela system_integrations_log
     try {
-      const logs = await db.select().from(systemIntegrationsLog);
+      const logs = await withDbRetry(() => db.select().from(systemIntegrationsLog));
       for (const log of logs) {
         const payload: any = log.payload || {};
         const isTest =

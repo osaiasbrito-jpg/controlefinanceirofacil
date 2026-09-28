@@ -87,7 +87,7 @@ const MainLayout: React.FC = () => {
     };
     selectedCount?: number;
     hasInstallmentsInSelection?: boolean;
-    onConfirm: (deleteAllInstallments?: boolean) => Promise<void>;
+    onConfirm: (choice?: 'future' | 'all' | 'single' | boolean) => Promise<void>;
   }>({
     isOpen: false,
     title: '',
@@ -170,9 +170,11 @@ const MainLayout: React.FC = () => {
           total: expense.totalInstallments || 1,
           title: expense.description,
         },
-        onConfirm: async (deleteAll) => {
-          if (deleteAll && expense.installmentPurchaseId) {
-            await deleteInstallmentPurchase(expense.installmentPurchaseId);
+        onConfirm: async (choice) => {
+          if (choice === 'future' || choice === true) {
+            await deleteExpense(expense.id, { deleteFutureInstallments: true });
+          } else if (choice === 'all') {
+            await deleteExpense(expense.id, { deleteAllInstallments: true });
           } else {
             await deleteExpense(expense.id);
           }

@@ -148,7 +148,7 @@ interface FinanceContextType {
 
   addExpense: (data: Omit<Expense, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => Promise<string>;
   updateExpense: (id: string, data: Partial<Expense>, updateAllInstallments?: boolean) => Promise<void>;
-  deleteExpense: (id: string) => Promise<void>;
+  deleteExpense: (id: string, options?: { deleteFutureInstallments?: boolean; deleteAllInstallments?: boolean }) => Promise<void>;
   deleteMultipleExpenses: (
     expenseIds: string[],
     deleteAllLinkedInstallments?: boolean
@@ -890,6 +890,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
           prev.filter((p) => !p.id.startsWith('demo')).forEach((p) => map.set(p.id, p));
           let hasNew = false;
           pgData.installmentPurchases.forEach((pgInst: any) => {
+            if (deletedRecordIdsRef.current.has(pgInst.id)) return;
             const formatted: InstallmentPurchase = {
               id: pgInst.id,
               userId: currentUser.uid || pgInst.userId || 'osaiasbrito@gmail.com',
@@ -924,6 +925,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
           prev.filter((e) => !e.id.startsWith('demo') && e.id !== 'exp-1').forEach((e) => map.set(e.id, e));
           let hasChange = false;
           pgData.expenses.forEach((pgExp: any) => {
+            if (deletedRecordIdsRef.current.has(pgExp.id)) return;
             const refMonth = pgExp.referenceMonth || (pgExp.date ? pgExp.date.substring(0, 7) : '');
             const cardId = pgExp.cardId || pgExp.creditCardId || undefined;
             const cardName = pgExp.cardName || pgExp.creditCardName || undefined;
@@ -961,28 +963,35 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
               map.set(pgExp.id, formatted);
               hasChange = true;
             } else {
+              const existingTime = new Date(existing.updatedAt || 0).getTime();
+              const pgTime = new Date(pgExp.updatedAt || 0).getTime();
+              // Se o registro local for mais recente (ex: editado pelo usuário nesta sessão), preservar os dados locais
+              const useLocal = existingTime > pgTime;
+              const base = useLocal ? formatted : existing;
+              const override = useLocal ? existing : formatted;
+
               // Merge seguro e não destrutivo: dados preexistentes nunca são apagados
               const merged: Expense = {
-                ...existing,
-                ...formatted,
-                description: formatted.description || existing.description,
-                amount: formatted.amount || existing.amount,
-                date: formatted.date || existing.date,
-                referenceMonth: formatted.referenceMonth || existing.referenceMonth,
-                status: formatted.status || existing.status,
-                categoryId: formatted.categoryId || existing.categoryId,
-                categoryName: formatted.categoryName || existing.categoryName,
-                paymentMethod: formatted.paymentMethod || existing.paymentMethod,
-                paymentMethodId: formatted.paymentMethodId || existing.paymentMethodId,
-                paymentMethodName: formatted.paymentMethodName || existing.paymentMethodName,
-                cardId: formatted.cardId || existing.cardId,
-                cardName: formatted.cardName || existing.cardName,
-                isInstallment: formatted.isInstallment ?? existing.isInstallment,
-                isIndefinite: formatted.isIndefinite ?? existing.isIndefinite,
-                installmentNumber: formatted.installmentNumber ?? existing.installmentNumber,
-                totalInstallments: formatted.totalInstallments ?? existing.totalInstallments,
-                installmentPurchaseId: formatted.installmentPurchaseId || existing.installmentPurchaseId,
-                notes: formatted.notes || existing.notes,
+                ...base,
+                ...override,
+                description: override.description || base.description,
+                amount: override.amount || base.amount,
+                date: override.date || base.date,
+                referenceMonth: override.referenceMonth || base.referenceMonth,
+                status: override.status || base.status,
+                categoryId: override.categoryId || base.categoryId,
+                categoryName: override.categoryName || base.categoryName,
+                paymentMethod: override.paymentMethod || base.paymentMethod,
+                paymentMethodId: override.paymentMethodId !== undefined ? override.paymentMethodId : base.paymentMethodId,
+                paymentMethodName: override.paymentMethodName !== undefined ? override.paymentMethodName : base.paymentMethodName,
+                cardId: override.cardId !== undefined ? override.cardId : base.cardId,
+                cardName: override.cardName !== undefined ? override.cardName : base.cardName,
+                isInstallment: override.isInstallment ?? base.isInstallment,
+                isIndefinite: override.isIndefinite ?? base.isIndefinite,
+                installmentNumber: override.installmentNumber ?? base.installmentNumber,
+                totalInstallments: override.totalInstallments ?? base.totalInstallments,
+                installmentPurchaseId: override.installmentPurchaseId || base.installmentPurchaseId,
+                notes: override.notes !== undefined ? override.notes : base.notes,
               };
               if (
                 existing.cardId !== merged.cardId ||
@@ -1782,6 +1791,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
             ? {
                 ...e,
                 paymentMethod: data.paymentMethod ?? e.paymentMethod,
+                paymentMethodId: data.paymentMethodId !== undefined ? data.paymentMethodId : e.paymentMethodId,
+                paymentMethodName: data.paymentMethodName !== undefined ? data.paymentMethodName : e.paymentMethodName,
                 cardId: data.cardId !== undefined ? data.cardId : e.cardId,
                 cardName: data.cardName !== undefined ? data.cardName : e.cardName,
                 categoryId: data.categoryId ?? e.categoryId,
@@ -1799,8 +1810,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
           p.id === targetExp.installmentPurchaseId
             ? {
                 ...p,
-                cardId: data.cardId || p.cardId,
-                cardName: data.cardName || p.cardName,
+                cardId: data.cardId !== undefined ? data.cardId : p.cardId,
+                cardName: data.cardName !== undefined ? data.cardName : p.cardName,
                 categoryId: data.categoryId || p.categoryId,
                 categoryName: data.categoryName || p.categoryName,
                 updatedAt: nowIso,
@@ -1820,6 +1831,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
           serverUpdatedAt: serverTimestamp(),
         };
         if (data.paymentMethod !== undefined) updatePayload.paymentMethod = data.paymentMethod;
+        if (data.paymentMethodId !== undefined) updatePayload.paymentMethodId = data.paymentMethodId;
+        if (data.paymentMethodName !== undefined) updatePayload.paymentMethodName = data.paymentMethodName;
         if (data.cardId !== undefined) updatePayload.cardId = data.cardId;
         if (data.cardName !== undefined) updatePayload.cardName = data.cardName;
         if (data.categoryId !== undefined) updatePayload.categoryId = data.categoryId;
@@ -1857,21 +1870,91 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     );
   };
 
-  const deleteExpense = async (id: string): Promise<void> => {
-    registerDeletedIds([id]);
+  const deleteExpense = async (
+    id: string,
+    options?: { deleteFutureInstallments?: boolean; deleteAllInstallments?: boolean }
+  ): Promise<void> => {
+    const targetExpense = expenses.find((e) => e.id === id);
+    const idsToDelete = new Set<string>([id]);
+    let purchaseIdToDelete: string | undefined;
+
+    if (targetExpense && (options?.deleteFutureInstallments || options?.deleteAllInstallments)) {
+      if (targetExpense.installmentPurchaseId) {
+        if (options.deleteAllInstallments || (targetExpense.installmentNumber && targetExpense.installmentNumber <= 1)) {
+          purchaseIdToDelete = targetExpense.installmentPurchaseId;
+          expenses
+            .filter((e) => e.installmentPurchaseId === targetExpense.installmentPurchaseId)
+            .forEach((e) => idsToDelete.add(e.id));
+        } else {
+          // Excluir esta parcela e todas as parcelas futuras vinculadas
+          expenses
+            .filter(
+              (e) =>
+                e.installmentPurchaseId === targetExpense.installmentPurchaseId &&
+                ((e.installmentNumber || 0) >= (targetExpense.installmentNumber || 1) || (e.date && e.date >= targetExpense.date))
+            )
+            .forEach((e) => idsToDelete.add(e.id));
+        }
+      } else if (targetExpense.isInstallment) {
+        const baseTitle = targetExpense.description.replace(/\s*\(\d+\/\d+\)\s*$/, '').trim().toLowerCase();
+        expenses
+          .filter((e) => {
+            const curTitle = e.description.replace(/\s*\(\d+\/\d+\)\s*$/, '').trim().toLowerCase();
+            if (curTitle !== baseTitle) return false;
+            if (options.deleteAllInstallments || (targetExpense.installmentNumber && targetExpense.installmentNumber <= 1)) {
+              return true;
+            }
+            return (e.installmentNumber || 0) >= (targetExpense.installmentNumber || 1) || (e.date && e.date >= targetExpense.date);
+          })
+          .forEach((e) => idsToDelete.add(e.id));
+      }
+    }
+
+    const allIds = Array.from(idsToDelete);
+    registerDeletedIds([...allIds, ...(purchaseIdToDelete ? [purchaseIdToDelete] : [])]);
+
     // Immediate state update for responsive UI feedback
-    setExpenses((prev) => prev.filter((e) => e.id !== id && !deletedRecordIdsRef.current.has(e.id)));
+    setExpenses((prev) => prev.filter((e) => !idsToDelete.has(e.id) && !deletedRecordIdsRef.current.has(e.id)));
+    if (purchaseIdToDelete) {
+      setInstallmentPurchases((prev) => prev.filter((p) => p.id !== purchaseIdToDelete));
+    }
+
     if (isDemoUser || !currentUser) return;
 
     const token = await getSafeUserToken(currentUser);
-    try {
-      await deleteEntityFromPostgres('expenses', id, currentUser.uid, token);
-    } catch {}
 
+    // 1. Delete from PostgreSQL
     try {
-      await deleteDoc(doc(db, 'expenses', id));
+      if (purchaseIdToDelete) {
+        await deleteEntityFromPostgres('installment_purchases', purchaseIdToDelete, currentUser.uid, token);
+      }
+      await deleteEntityFromPostgres('expenses', id, currentUser.uid, token, {
+        deleteFuture: options?.deleteFutureInstallments,
+        deleteAll: options?.deleteAllInstallments,
+      });
+      for (const extraId of allIds) {
+        if (extraId !== id) {
+          await deleteEntityFromPostgres('expenses', extraId, currentUser.uid, token);
+        }
+      }
+    } catch (pgErr) {
+      console.warn('Aviso ao excluir despesa(s) do PostgreSQL:', pgErr);
+    }
+
+    // 2. Delete from Firestore (safely without breaking UI)
+    try {
+      for (const expId of allIds) {
+        try {
+          await deleteDoc(doc(db, 'expenses', expId));
+        } catch {}
+      }
+      if (purchaseIdToDelete) {
+        try {
+          await deleteDoc(doc(db, 'installmentPurchases', purchaseIdToDelete));
+        } catch {}
+      }
     } catch (err) {
-      console.warn('Aviso ao excluir despesa do Firestore:', err);
+      console.warn('Aviso ao excluir despesa(s) do Firestore:', err);
     }
   };
 
@@ -1908,10 +1991,30 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       });
     }
 
+    const allExpenseIdsToDelete = Array.from(targetExpenseIdSet);
+    const allPurchaseIdsToDelete = Array.from(purchaseIdsToDelete);
+
+    // Register all IDs as deleted
+    registerDeletedIds([...allExpenseIdsToDelete, ...allPurchaseIdsToDelete]);
+
     // Immediately update local state for responsive, zero-latency UI
     setExpenses((prev) => prev.filter((e) => !targetExpenseIdSet.has(e.id)));
     if (purchaseIdsToDelete.size > 0) {
       setInstallmentPurchases((prev) => prev.filter((p) => !purchaseIdsToDelete.has(p.id)));
+    }
+
+    if (!isDemoUser && currentUser) {
+      const token = await getSafeUserToken(currentUser);
+      try {
+        for (const pId of allPurchaseIdsToDelete) {
+          await deleteEntityFromPostgres('installment_purchases', pId, currentUser.uid, token);
+        }
+        for (const eId of allExpenseIdsToDelete) {
+          await deleteEntityFromPostgres('expenses', eId, currentUser.uid, token);
+        }
+      } catch (err) {
+        console.warn('Aviso ao excluir lote do PostgreSQL:', err);
+      }
     }
 
     if (!isDemoUser) {
@@ -1931,35 +2034,19 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
           }
         }
 
-        const allExpenseIdsToDelete = Array.from(targetExpenseIdSet);
-        const allPurchaseIdsToDelete = Array.from(purchaseIdsToDelete);
-
-        // Group operations into transactional chunks to strictly guarantee atomicity
-        const allOperations: Array<{ type: 'purchase' | 'expense'; id: string }> = [
-          ...allPurchaseIdsToDelete.map((id) => ({ type: 'purchase' as const, id })),
-          ...allExpenseIdsToDelete.map((id) => ({ type: 'expense' as const, id })),
-        ];
-
-        const chunkSize = 400;
-        for (let i = 0; i < allOperations.length; i += chunkSize) {
-          const chunk = allOperations.slice(i, i + chunkSize);
-          await runTransaction(db, async (transaction) => {
-            for (const op of chunk) {
-              if (op.type === 'purchase') {
-                transaction.delete(doc(db, 'installmentPurchases', op.id));
-              } else {
-                transaction.delete(doc(db, 'expenses', op.id));
-              }
-            }
-          });
+        const finalExpenseIds = Array.from(targetExpenseIdSet);
+        for (const id of finalExpenseIds) {
+          try {
+            await deleteDoc(doc(db, 'expenses', id));
+          } catch {}
+        }
+        for (const pId of allPurchaseIdsToDelete) {
+          try {
+            await deleteDoc(doc(db, 'installmentPurchases', pId));
+          } catch {}
         }
       } catch (err) {
-        console.error('Erro na transação de exclusão em lote no Firestore:', err);
-        // Rollback optimistic state on error to maintain integrity
-        setExpenses(previousExpenses);
-        setInstallmentPurchases(previousPurchases);
-        handleFirestoreError(err, OperationType.DELETE, 'expenses');
-        throw err;
+        console.warn('Aviso na exclusão em lote no Firestore:', err);
       }
     }
 
@@ -2427,52 +2514,53 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       return;
     }
 
-    const previousExpenses = [...expenses];
-    const previousPurchases = [...installmentPurchases];
+    // Collect all linked expense doc IDs from memory
+    const docsToDelete = new Set<string>();
+    expenses.filter((e) => e.installmentPurchaseId === purchaseId).forEach((e) => docsToDelete.add(e.id));
+    const docIds = Array.from(docsToDelete);
 
-    // User chose to delete ALL installments of this purchase
+    // Register all IDs as deleted so background sync never resurrects them
+    registerDeletedIds([purchaseId, ...docIds]);
+
     // Immediately update local state for fast UI response
     setInstallmentPurchases((prev) => prev.filter((p) => p.id !== purchaseId));
     setExpenses((prev) => prev.filter((e) => e.installmentPurchaseId !== purchaseId));
 
-    if (isDemoUser) return;
+    if (isDemoUser || !currentUser) return;
 
+    const token = await getSafeUserToken(currentUser);
+
+    // 1. Delete from PostgreSQL (this also cascade-deletes all linked expenses in PostgreSQL)
     try {
-      // Collect all linked expense doc IDs from memory and Firestore
-      const docsToDelete = new Set<string>();
-      expenses.filter((e) => e.installmentPurchaseId === purchaseId).forEach((e) => docsToDelete.add(e.id));
+      await deleteEntityFromPostgres('installment_purchases', purchaseId, currentUser.uid, token);
+      for (const expId of docIds) {
+        await deleteEntityFromPostgres('expenses', expId, currentUser.uid, token);
+      }
+    } catch (pgErr) {
+      console.warn('Aviso ao excluir parcelamento do PostgreSQL:', pgErr);
+    }
 
+    // 2. Delete from Firestore safely without breaking or rolling back UI
+    try {
       try {
         const q = query(collection(db, 'expenses'), where('installmentPurchaseId', '==', purchaseId));
         const querySnapshot = await getDocs(q);
         querySnapshot.forEach((d) => docsToDelete.add(d.id));
       } catch (err) {
-        console.warn('Erro ao consultar despesas vinculadas no Firestore:', err);
+        console.warn('Aviso ao consultar despesas vinculadas no Firestore:', err);
       }
 
-      const docIds = Array.from(docsToDelete);
-
-      // Execute atomic transaction for master record + all linked installment expenses
-      const allOps: Array<{ collection: string; id: string }> = [
-        { collection: 'installmentPurchases', id: purchaseId },
-        ...docIds.map((id) => ({ collection: 'expenses', id })),
-      ];
-
-      const chunkSize = 400;
-      for (let i = 0; i < allOps.length; i += chunkSize) {
-        const chunk = allOps.slice(i, i + chunkSize);
-        await runTransaction(db, async (transaction) => {
-          for (const op of chunk) {
-            transaction.delete(doc(db, op.collection, op.id));
-          }
-        });
+      for (const id of Array.from(docsToDelete)) {
+        try {
+          await deleteDoc(doc(db, 'expenses', id));
+        } catch {}
       }
+
+      try {
+        await deleteDoc(doc(db, 'installmentPurchases', purchaseId));
+      } catch {}
     } catch (err) {
-      console.error('Erro ao excluir parcelamento completo via transação:', err);
-      setExpenses(previousExpenses);
-      setInstallmentPurchases(previousPurchases);
-      handleFirestoreError(err, OperationType.DELETE, 'installmentPurchases');
-      throw err;
+      console.warn('Aviso ao excluir parcelamento do Firestore:', err);
     }
   };
 

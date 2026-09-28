@@ -183,11 +183,17 @@ async function startServer() {
     try {
       const userId = req.user?.uid || (req.query.userId as string) || (req.body?.userId as string);
       const { table, id } = req.params;
+      const deleteFuture = req.query.deleteFuture === 'true' || req.body?.deleteFuture === true;
+      const deleteAll = req.query.deleteAll === 'true' || req.body?.deleteAll === true;
+
       if (!userId || !id || !table) {
         return res.status(400).json({ error: 'Parâmetros incompletos para remoção' });
       }
 
-      const result = await deleteEntity(table, id, userId);
+      const result = await deleteEntity(table, id, userId, {
+        deleteFutureInstallments: deleteFuture,
+        deleteAllInstallments: deleteAll,
+      });
       if (table === 'renda_massoterapia' || table === 'massoterapia') {
         broadcastSyncEvent('data_refreshed', { action: 'delete', table, id, timestamp: Date.now() });
       }
@@ -398,9 +404,12 @@ async function startServer() {
     }
   });
 
-  // Daemon em segundo plano: Sincronização e importação automática contínua do banco de Gestão de Pessoas
+  // Daemon em segundo plano: Sincronização e importação automática periódica do banco de Gestão de Pessoas
   let lastKnownCount = 0;
+  let isDaemonSyncing = false;
   setInterval(async () => {
+    if (isDaemonSyncing) return;
+    isDaemonSyncing = true;
     try {
       const count = await syncIntegrationsLogToMassoterapia();
       const autoRes = await autoImportGestaoMassoterapiaSessions('osaiasbrito@gmail.com');
@@ -408,8 +417,15 @@ async function startServer() {
         lastKnownCount = count;
         broadcastSyncEvent('data_refreshed', { count, autoCount: autoRes?.count || 0, timestamp: Date.now() });
       }
-    } catch {}
-  }, 3000);
+    } catch (err: any) {
+      // Capturar falhas de rede transitórias sem interromper o serviço
+      if (!err?.message?.includes('Connection terminated unexpectedly')) {
+        console.warn('Aviso no ciclo do daemon de integração:', err?.message || err);
+      }
+    } finally {
+      isDaemonSyncing = false;
+    }
+  }, 25000);
 
   // Teste de Conexão em Tempo Real com o Sistema de Massoterapia (Terapias Pro / Qi Zen)
   // Garante estritamente que NÃO haverá mais de um registro de teste para nunca poluir o banco de dados

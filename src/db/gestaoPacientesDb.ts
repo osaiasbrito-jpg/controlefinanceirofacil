@@ -26,13 +26,23 @@ export function getGestaoPacientesPool(): Pool {
     gestaoPool = new Pool({
       connectionString,
       ssl: { rejectUnauthorized: false },
-      max: 10,
+      max: 5,
+      min: 0,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000,
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10000,
     });
 
-    gestaoPool.on('error', (err) => {
-      console.warn('Aviso no pool do banco de Gestão de Pacientes:', err.message);
+    gestaoPool.on('error', (err: any) => {
+      const isTerminated =
+        err?.message?.includes('Connection terminated unexpectedly') ||
+        err?.code === 'ECONNRESET';
+      if (isTerminated) {
+        console.warn('[GestaoPacientes Pool] Conexão ociosa finalizada pelo servidor remoto (reciclada com sucesso).');
+      } else {
+        console.warn('Aviso no pool do banco de Gestão de Pacientes:', err.message);
+      }
     });
   }
 

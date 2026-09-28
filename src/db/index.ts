@@ -21,7 +21,11 @@ export const createPool = () => {
         database: process.env.SQL_DB_NAME || 'cloud_sql_development_database',
         port: process.env.SQL_PORT ? Number(process.env.SQL_PORT) : undefined,
         max: 10,
-        connectionTimeoutMillis: 15000,
+        min: 0,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000,
+        keepAlive: true,
+        keepAliveInitialDelayMillis: 10000,
       };
     } else if (process.env.DATABASE_URL || process.env.POSTGRES_URL) {
       const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL;
@@ -29,7 +33,11 @@ export const createPool = () => {
         connectionString,
         ssl: connectionString?.includes('supabase.co') ? { rejectUnauthorized: false } : undefined,
         max: 10,
-        connectionTimeoutMillis: 15000,
+        min: 0,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000,
+        keepAlive: true,
+        keepAliveInitialDelayMillis: 10000,
       };
     } else {
       config = {
@@ -40,14 +48,27 @@ export const createPool = () => {
         port: Number(process.env.PGPORT || 5432),
         ssl: { rejectUnauthorized: false },
         max: 10,
-        connectionTimeoutMillis: 15000,
+        min: 0,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000,
+        keepAlive: true,
+        keepAliveInitialDelayMillis: 10000,
       };
     }
 
     global._postgresPool = new Pool(config);
 
-    global._postgresPool.on('error', (err) => {
-      console.error('Unexpected error on idle PostgreSQL pool client:', err);
+    global._postgresPool.on('error', (err: any) => {
+      const isTerminated =
+        err?.message?.includes('Connection terminated unexpectedly') ||
+        err?.code === 'ECONNRESET' ||
+        err?.code === '57P01';
+      if (isTerminated) {
+        // Conexões ociosas finalizadas pelo servidor ou firewall são normais e o pool as descarta
+        console.warn('[PostgreSQL Pool] Conexão ociosa finalizada pelo servidor/proxy (reciclada com sucesso).');
+      } else {
+        console.error('Unexpected error on idle PostgreSQL pool client:', err);
+      }
     });
   }
   return global._postgresPool;
@@ -57,3 +78,32 @@ const pool = createPool();
 
 export const db = drizzle(pool, { schema });
 export { pool };
+
+/**
+ * Executa uma operação no banco de dados com retentativa automática em caso de desconexão inesperada.
+ */
+export async function withDbRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 300): Promise<T> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      attempt++;
+      const isConnectionError =
+        error?.message?.includes('Connection terminated unexpectedly') ||
+        error?.message?.includes('connection closed') ||
+        error?.cause?.message?.includes('Connection terminated unexpectedly') ||
+        error?.code === 'ECONNRESET' ||
+        error?.code === '57P01' ||
+        error?.code === '08006' ||
+        error?.code === '08001';
+
+      if (isConnectionError && attempt <= retries) {
+        console.warn(`[PostgreSQL] Conexão terminada inesperadamente na tentativa ${attempt}. Reconectando cliente em ${delayMs}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
+      throw error;
+    }
+  }
+}

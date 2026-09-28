@@ -52,6 +52,7 @@ import {
   isDebitExpense,
   isCashExpense,
   isExpenseMatchingPaymentMethod,
+  resolveEffectivePaymentMethod,
 } from '../utils/cardUtils';
 import { isAbatimentoMatchingCard, isAbatimentoMatchingPaymentMethod } from '../utils/calculations';
 import { ConfirmDeleteModal } from './modals/ConfirmDeleteModal';
@@ -150,10 +151,10 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
       if (!cardGroupMap.has(groupKey)) {
         cardGroupMap.set(groupKey, {
           key: groupKey,
-          cardId: c.id,
+          cardId: canonical.canonicalId || c.id,
           cardName: canonical.canonicalName || c.name,
-          bank: c.bank || canonical.bank || 'Crédito',
-          color: c.color || canonical.color || '#8B5CF6',
+          bank: canonical.bank || c.bank || 'Crédito',
+          color: canonical.color || c.color || '#8B5CF6',
           count: 0,
           total: 0,
         });
@@ -161,7 +162,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
     });
 
     // 2. Non-card payment methods (Pix, Boleto, Débito, Dinheiro, etc.)
-    // Ensure all registered payment methods and standard types are represented, ALWAYS including Pix!
+    // Ensure unique representation by canonical method type without duplicates
     const methodMap = new Map<
       string,
       {
@@ -177,7 +178,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
       }
     >();
 
-    // Seed with registered custom payment methods (from "Cartões e Outros Tipos")
+    // Seed with registered custom payment methods (from "Cartões e Outros Tipos"), deduplicating by canonical type
     paymentMethods.forEach((pm) => {
       const iconType =
         pm.type === 'PIX'
@@ -190,24 +191,41 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
           ? 'dinheiro'
           : 'outros';
 
-      methodMap.set(pm.id, {
-        key: pm.id,
-        method: pm.type,
-        methodId: pm.id,
-        label: pm.name,
-        subtitle: pm.details || (pm.type === 'PIX' ? 'Chave Instantânea' : pm.type === 'BOLETO' ? 'Código de barras' : 'Outro'),
-        iconType,
-        color: pm.color || '#0D9488',
-        count: 0,
-        total: 0,
-      });
+      const methodKey = (pm.type === 'PIX' || pm.type === 'BOLETO' || pm.type === 'CARTAO_DEBITO' || pm.type === 'DINHEIRO')
+        ? pm.type
+        : pm.id;
+
+      const existing = methodMap.get(methodKey);
+      if (!existing) {
+        methodMap.set(methodKey, {
+          key: methodKey,
+          method: pm.type,
+          methodId: pm.id,
+          label: pm.name,
+          subtitle: pm.details || (pm.type === 'PIX' ? 'Chave Instantânea' : pm.type === 'BOLETO' ? 'Código de barras' : 'Outro'),
+          iconType,
+          color: pm.color || '#0D9488',
+          count: 0,
+          total: 0,
+        });
+      } else {
+        // Enhance existing entry if current has more descriptive details
+        if (pm.details && !existing.subtitle.includes(pm.details)) {
+          existing.subtitle = pm.details;
+        }
+        if (pm.name && pm.name.toUpperCase() === pm.name && existing.label !== pm.name) {
+          existing.label = pm.name;
+        }
+        if (pm.id && !existing.methodId) {
+          existing.methodId = pm.id;
+        }
+      }
     });
 
-    // If Pix is not yet in methodMap, ensure standard Pix is ALWAYS present
-    const hasPix = Array.from(methodMap.values()).some((m) => m.method === 'PIX');
-    if (!hasPix) {
-      methodMap.set('default-pix', {
-        key: 'default-pix',
+    // Ensure standard Pix is present if not already added
+    if (!methodMap.has('PIX')) {
+      methodMap.set('PIX', {
+        key: 'PIX',
         method: 'PIX',
         label: 'Pix',
         subtitle: 'Instantâneo',
@@ -218,11 +236,10 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
       });
     }
 
-    // Ensure Boleto is present if not already added
-    const hasBoleto = Array.from(methodMap.values()).some((m) => m.method === 'BOLETO');
-    if (!hasBoleto) {
-      methodMap.set('default-boleto', {
-        key: 'default-boleto',
+    // Ensure standard Boleto is present if not already added
+    if (!methodMap.has('BOLETO')) {
+      methodMap.set('BOLETO', {
+        key: 'BOLETO',
         method: 'BOLETO',
         label: 'Boleto Bancário',
         subtitle: 'Código de barras',
@@ -235,54 +252,43 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
 
     // Consolidate expenses into cards and non-card payment methods
     monthExpenses.forEach((exp) => {
-      const isPix = isPixExpense(exp, categories);
-      const isBoleto = !isPix && isBoletoExpense(exp, categories);
-      const isDebit = !isPix && !isBoleto && isDebitExpense(exp, categories);
-      const isCash = !isPix && !isBoleto && !isDebit && isCashExpense(exp, categories);
-      const isNonCard = isPix || isBoleto || isDebit || isCash || exp.paymentMethod !== 'CARTAO_CREDITO';
+      const effectiveMethod = resolveEffectivePaymentMethod(exp, categories, creditCards);
+      const isCard = effectiveMethod === 'CARTAO_CREDITO';
 
-      if (!isNonCard && exp.paymentMethod === 'CARTAO_CREDITO') {
+      if (isCard) {
         const parent = exp.installmentPurchaseId ? installmentPurchases.find((p) => p.id === exp.installmentPurchaseId) : undefined;
         const effectiveCardId = exp.cardId || parent?.cardId;
         const effectiveCardName = exp.cardName || parent?.cardName;
         const canonical = getCanonicalCardInfo(effectiveCardId, effectiveCardName, creditCards);
-        if (canonical.isRegistered) {
-          const groupKey = canonical.canonicalName;
-          const existing = cardGroupMap.get(groupKey);
-          if (existing) {
-            existing.count += 1;
-            existing.total += exp.amount || 0;
-          }
-        } else if (canonical.canonicalName) {
-          const groupKey = canonical.canonicalName;
-          let existing = cardGroupMap.get(groupKey);
-          if (!existing) {
-            existing = {
-              key: groupKey,
-              cardId: canonical.canonicalId || groupKey,
-              cardName: canonical.canonicalName,
-              bank: canonical.bank || 'Crédito',
-              color: canonical.color || '#8B5CF6',
-              count: 0,
-              total: 0,
-            };
-            cardGroupMap.set(groupKey, existing);
-          }
-          existing.count += 1;
-          existing.total += exp.amount || 0;
+        const groupKey = canonical.canonicalName || 'CARTÃO DE CRÉDITO';
+        
+        let existing = cardGroupMap.get(groupKey);
+        if (!existing) {
+          existing = {
+            key: groupKey,
+            cardId: canonical.canonicalId || groupKey,
+            cardName: canonical.canonicalName || groupKey,
+            bank: canonical.bank || 'Crédito',
+            color: canonical.color || '#8B5CF6',
+            count: 0,
+            total: 0,
+          };
+          cardGroupMap.set(groupKey, existing);
         }
+        existing.count += 1;
+        existing.total += exp.amount || 0;
       } else {
         // Non-card payment (Pix, Boleto, Débito, Dinheiro, etc.)
-        let method: PaymentMethod = 'PIX';
-        if (isPix) method = 'PIX';
-        else if (isBoleto) method = 'BOLETO';
-        else if (isDebit) method = 'CARTAO_DEBITO';
-        else if (isCash) method = 'DINHEIRO';
-        else method = exp.paymentMethod || 'PIX';
+        const method: PaymentMethod = effectiveMethod;
 
-        // Try match by paymentMethodId first
-        let matchedItem = exp.paymentMethodId ? methodMap.get(exp.paymentMethodId) : undefined;
-        // If not matched by id, match by method type (e.g. PIX)
+        const methodKey = (method === 'PIX' || method === 'BOLETO' || method === 'CARTAO_DEBITO' || method === 'DINHEIRO')
+          ? method
+          : (exp.paymentMethodId || method);
+
+        let matchedItem = methodMap.get(methodKey);
+        if (!matchedItem && exp.paymentMethodId) {
+          matchedItem = methodMap.get(exp.paymentMethodId);
+        }
         if (!matchedItem) {
           matchedItem = Array.from(methodMap.values()).find((m) => m.method === method);
         }
@@ -327,8 +333,8 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
               ? '#2563EB'
               : '#059669';
 
-          methodMap.set(method, {
-            key: method,
+          methodMap.set(methodKey, {
+            key: methodKey,
             method,
             label,
             subtitle,
@@ -354,7 +360,12 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
       };
     });
 
-    const methodsList = Array.from(methodMap.values()).map((m) => {
+    // Deduplicated methods list: display methods with expenses, or registered methods without duplicates
+    const allMethods = Array.from(methodMap.values());
+    const methodsWithExpenses = allMethods.filter((m) => m.count > 0);
+    const selectedMethods = methodsWithExpenses.length > 0 ? methodsWithExpenses : allMethods;
+
+    const methodsList = selectedMethods.map((m) => {
       const matchingAb = effectiveAbatimentosForMonth.filter((ab) =>
         isAbatimentoMatchingPaymentMethod(ab, m.method, m.methodId, m.label)
       );
@@ -526,8 +537,9 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
     );
   }, [selectedExpensesList]);
 
-  const handleConfirmBulkDelete = async (deleteAllLinkedInstallments?: boolean) => {
+  const handleConfirmBulkDelete = async (choice?: 'future' | 'all' | 'single' | boolean) => {
     const ids = Array.from(selectedExpenseIds);
+    const deleteAllLinkedInstallments = choice === true || choice === 'all' || choice === 'future';
     await deleteMultipleExpenses(ids, deleteAllLinkedInstallments);
     setSelectedExpenseIds(new Set());
     setBulkDeleteModalOpen(false);
@@ -785,7 +797,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
               )}
             </div>
             <div className="flex items-center justify-between text-xs mt-2 pt-2 border-t border-slate-100 text-slate-500">
-              <span>{paymentBreakdown.cards.length} cartão(ões) com gasto</span>
+              <span>{paymentBreakdown.cards.filter((c) => c.count > 0).length} cartão(ões) com gasto</span>
               <span className="text-[10px] text-purple-700 font-bold bg-purple-50 px-1.5 py-0.5 rounded-md border border-purple-200">
                 {paymentBreakdown.totalCardCount} parcelas/gastos
               </span>
