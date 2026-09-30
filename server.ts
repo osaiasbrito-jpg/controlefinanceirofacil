@@ -27,6 +27,13 @@ import {
 import { db } from './src/db/index';
 import { systemIntegrationsLog } from './src/db/schema';
 import { ensureDatabaseTables } from './src/db/init';
+import {
+  iniciarAgendadorMovimento,
+  getMovimentoStatus,
+  lancarMovimento,
+  apagarMovimento,
+  executarCicloMovimento,
+} from './src/services/movimentoService';
 
 const __filenameSafe = typeof import.meta !== 'undefined' && import.meta.url ? fileURLToPath(import.meta.url) : (process.argv[1] || '');
 const __dirnameSafe = __filenameSafe ? path.dirname(__filenameSafe) : process.cwd();
@@ -37,6 +44,13 @@ async function startServer() {
     await ensureDatabaseTables();
   } catch (err) {
     console.error('Falha ao inicializar tabelas PostgreSQL:', err);
+  }
+
+  // Inicializa o agendador automático diário da tabela movimento (08h lançamento, 20h remoção)
+  try {
+    iniciarAgendadorMovimento();
+  } catch (err) {
+    console.error('Falha ao inicializar agendador da tabela movimento:', err);
   }
 
   const app = express();
@@ -72,6 +86,69 @@ async function startServer() {
       res.json(dbStatus);
     } catch (error: any) {
       res.status(500).json({ status: 'error', message: error.message });
+    }
+  });
+
+  // Rotinas e Monitoramento da Tabela Movimento (Keep-Alive Automático)
+  app.get('/api/movimento/status', async (_req, res) => {
+    try {
+      const status = await getMovimentoStatus();
+      res.json(status);
+    } catch (error: any) {
+      res.status(500).json({ status: 'error', message: error.message });
+    }
+  });
+
+  app.post('/api/movimento/lancar', async (req, res) => {
+    try {
+      const { force, descricao, tipo, status, agendadoMeiaNoite } = req.body || {};
+      const result = await lancarMovimento({
+        force: Boolean(force),
+        customDesc: descricao,
+        tipo,
+        status,
+        agendadoMeiaNoite: Boolean(agendadoMeiaNoite),
+      });
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.post('/api/movimento/lancar-teste-meia-noite', async (req, res) => {
+    try {
+      const { descricao } = req.body || {};
+      const result = await lancarMovimento({
+        force: true,
+        agendadoMeiaNoite: true,
+        tipo: 'TESTE_MEIA_NOITE',
+        status: 'ATIVO_ATE_MEIA_NOITE',
+        customDesc:
+          descricao ||
+          'Teste de Atividade Solicitado - Lançado com a data de hoje (Programado para apagar automaticamente à Meia-Noite)',
+      });
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.post('/api/movimento/apagar', async (req, res) => {
+    try {
+      const { data, forceAll } = req.body || {};
+      const result = await apagarMovimento({ targetDate: data, forceAll: Boolean(forceAll) });
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.post('/api/movimento/executar-ciclo', async (_req, res) => {
+    try {
+      const result = await executarCicloMovimento();
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
     }
   });
 

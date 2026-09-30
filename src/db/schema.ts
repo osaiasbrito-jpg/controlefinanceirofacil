@@ -261,6 +261,19 @@ export const abatimentos = pgTable('abatimentos', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
+// Tabela Movimento (Rotina Diária Automática para Manter o Banco de Dados Ativo e sem Hibernação)
+export const movimento = pgTable('movimento', {
+  id: serial('id').primaryKey(),
+  data: text('data').notNull(), // Data da atividade (formato YYYY-MM-DD)
+  dataFormatada: text('data_formatada'), // Ex: '30/09/2026'
+  horaLancamento: text('hora_lancamento'), // Ex: '08:00:00'
+  descricao: text('descricao').default('Atividade Diária - Manutenção de Banco Ativo'),
+  tipo: text('tipo').default('KEEP_ALIVE'),
+  status: text('status').default('ATIVO'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   salaries: many(salaries),

@@ -241,6 +241,20 @@ export const DatabaseTestModal: React.FC<DatabaseTestModalProps> = ({ isOpen, on
                   <strong>Motor:</strong> {result.details.version}
                 </div>
               )}
+
+              {/* Status da Rotina Movimento (Keep-Alive) */}
+              <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-2xl flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+                  <div>
+                    <span className="font-bold text-emerald-900 block">Tabela Movimento (Keep-Alive Automático)</span>
+                    <span className="text-[11px] text-emerald-700">Lançamento diário às 08h e remoção diária às 20h (Horário de Brasília)</span>
+                  </div>
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 bg-emerald-200/70 text-emerald-900 rounded-lg shrink-0">
+                  Ativo
+                </span>
+              </div>
             </div>
           ) : null}
         </div>

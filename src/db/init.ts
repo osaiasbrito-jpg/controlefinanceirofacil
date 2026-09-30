@@ -326,6 +326,21 @@ export async function ensureDatabaseTables() {
 
       CREATE INDEX IF NOT EXISTS "idx_abatimentos_user" ON "abatimentos"("user_id");
       CREATE INDEX IF NOT EXISTS "idx_abatimentos_mes" ON "abatimentos"("reference_month");
+
+      -- Tabela Movimento (Rotina Automática Diária: Lançamento às 08h e Remoção às 20h para manter o banco ativo)
+      CREATE TABLE IF NOT EXISTS "movimento" (
+        "id" SERIAL PRIMARY KEY,
+        "data" DATE NOT NULL DEFAULT CURRENT_DATE,
+        "data_formatada" VARCHAR(20),
+        "hora_lancamento" VARCHAR(20),
+        "descricao" VARCHAR(255) DEFAULT 'Atividade Diária - Manutenção de Banco Ativo',
+        "tipo" VARCHAR(50) DEFAULT 'KEEP_ALIVE',
+        "status" VARCHAR(50) DEFAULT 'ATIVO',
+        "created_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS "idx_movimento_data" ON "movimento" ("data");
     `);
 
     // 2. Ensure all columns exist even if tables were created previously

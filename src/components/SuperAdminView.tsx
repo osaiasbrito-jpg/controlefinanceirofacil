@@ -28,6 +28,8 @@ import {
   Database,
   Server,
   Activity,
+  Copy,
+  Moon,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { formatCurrency, formatDateBR } from '../utils/formatters';
@@ -65,6 +67,113 @@ export const SuperAdminView: React.FC = () => {
       setCheckingDb(false);
     }
   };
+
+  // Movimento Keep-Alive State
+  const [movimentoStatus, setMovimentoStatus] = useState<any>(null);
+  const [loadingMovimento, setLoadingMovimento] = useState(false);
+  const [movimentoSuccessMsg, setMovimentoSuccessMsg] = useState('');
+  const [copiedSql, setCopiedSql] = useState(false);
+
+  const fetchMovimentoStatus = async () => {
+    setLoadingMovimento(true);
+    try {
+      const res = await fetch('/api/movimento/status');
+      const data = await res.json();
+      setMovimentoStatus(data);
+    } catch (err: any) {
+      console.error('Erro ao buscar status do movimento:', err);
+    } finally {
+      setLoadingMovimento(false);
+    }
+  };
+
+  const handleLancarMovimento = async () => {
+    setLoadingMovimento(true);
+    try {
+      const res = await fetch('/api/movimento/lancar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: true, descricao: 'Disparo manual via Painel Super Usuário' }),
+      });
+      const data = await res.json();
+      setMovimentoSuccessMsg(data.message || 'Data lançada com sucesso na tabela movimento!');
+      setTimeout(() => setMovimentoSuccessMsg(''), 5000);
+      await fetchMovimentoStatus();
+    } catch (err: any) {
+      alert('Erro ao lançar movimento: ' + err.message);
+    } finally {
+      setLoadingMovimento(false);
+    }
+  };
+
+  const handleLancarTesteMeiaNoite = async () => {
+    setLoadingMovimento(true);
+    try {
+      const res = await fetch('/api/movimento/lancar-teste-meia-noite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          descricao: 'Teste Solicitado pelo Usuário - Lançado com data de hoje e agendado para apagar à Meia-Noite',
+        }),
+      });
+      const data = await res.json();
+      setMovimentoSuccessMsg(data.message || 'Teste lançado com data de hoje! Exclusão agendada para a meia-noite.');
+      setTimeout(() => setMovimentoSuccessMsg(''), 6000);
+      await fetchMovimentoStatus();
+    } catch (err: any) {
+      alert('Erro ao lançar teste de meia-noite: ' + err.message);
+    } finally {
+      setLoadingMovimento(false);
+    }
+  };
+
+  const handleApagarMovimento = async () => {
+    setLoadingMovimento(true);
+    try {
+      const res = await fetch('/api/movimento/apagar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ forceAll: true }),
+      });
+      const data = await res.json();
+      setMovimentoSuccessMsg(data.message || 'Registros apagados com sucesso da tabela movimento!');
+      setTimeout(() => setMovimentoSuccessMsg(''), 5000);
+      await fetchMovimentoStatus();
+    } catch (err: any) {
+      alert('Erro ao apagar movimento: ' + err.message);
+    } finally {
+      setLoadingMovimento(false);
+    }
+  };
+
+  const sqlCreationScript = `-- Criação da tabela de movimento no PostgreSQL (Supabase)
+CREATE TABLE IF NOT EXISTS "movimento" (
+  "id" SERIAL PRIMARY KEY,
+  "data" DATE NOT NULL DEFAULT CURRENT_DATE,
+  "data_formatada" VARCHAR(20),
+  "hora_lancamento" VARCHAR(20),
+  "descricao" VARCHAR(255) DEFAULT 'Atividade Diária - Manutenção de Banco Ativo',
+  "tipo" VARCHAR(50) DEFAULT 'KEEP_ALIVE',
+  "status" VARCHAR(50) DEFAULT 'ATIVO',
+  "created_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Índice de busca por data
+CREATE INDEX IF NOT EXISTS "idx_movimento_data" ON "movimento" ("data");`;
+
+  const handleCopySql = () => {
+    navigator.clipboard.writeText(sqlCreationScript);
+    setCopiedSql(true);
+    setTimeout(() => setCopiedSql(false), 3000);
+  };
+
+  // Carrega status ao abrir aba de banco
+  React.useEffect(() => {
+    if (activeTab === 'database') {
+      fetchMovimentoStatus();
+    }
+  }, [activeTab]);
 
   // Form State for Pricing & Gateways
   const [formData, setFormData] = useState<PaymentGatewaySettings>({ ...gatewaySettings });
@@ -1049,6 +1158,7 @@ export const SuperAdminView: React.FC = () => {
                 { name: 'categories', label: 'Categorias do Usuário', icon: Sparkles },
                 { name: 'budgets', label: 'Orçamentos Mensais', icon: Crown },
                 { name: 'backups', label: 'Cópias de Segurança', icon: Database },
+                { name: 'movimento', label: 'Rotina Keep-Alive (08h e 20h)', icon: Activity },
               ].map((t) => {
                 const IconComponent = t.icon;
                 return (
@@ -1061,6 +1171,161 @@ export const SuperAdminView: React.FC = () => {
                   </div>
                 );
               })}
+            </div>
+          </div>
+
+          {/* Seção Exclusiva da Tabela Movimento & Rotina Keep-Alive */}
+          <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-xs space-y-5">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-[10px] font-black rounded-lg uppercase tracking-wider">
+                    Automático Diário
+                  </span>
+                  <span className="text-xs text-slate-400 font-medium">Horário de Brasília (UTC-3)</span>
+                </div>
+                <h3 className="text-base font-black text-slate-900 mt-1 flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-emerald-600" />
+                  Tabela Movimento — Manutenção Diária do Banco Ativo
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Insere a data atual todos os dias às <strong>08h da manhã</strong> e apaga às <strong>20h da noite</strong> para manter o banco gratuito sempre ativo e evitar hibernação por inatividade.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={fetchMovimentoStatus}
+                  disabled={loadingMovimento}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingMovimento ? 'animate-spin' : ''}`} />
+                  <span>Atualizar Status</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Mensagem de Ação com Sucesso */}
+            {movimentoSuccessMsg && (
+              <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl text-xs font-bold flex items-center gap-2 animate-in fade-in duration-200">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{movimentoSuccessMsg}</span>
+              </div>
+            )}
+
+            {/* Grid de Informações em Tempo Real */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 flex flex-col gap-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Horário Oficial (Brasília)
+                </span>
+                <span className="font-mono font-black text-slate-900 text-sm">
+                  {movimentoStatus?.brasiliaTime?.horaAtual || '--:--:--'}
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  Data: {movimentoStatus?.brasiliaTime?.dataAtual || '--/--/----'}
+                </span>
+              </div>
+
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 flex flex-col gap-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Status da Tabela
+                </span>
+                <span className="font-bold text-sm flex items-center gap-1.5">
+                  <span className={`w-2.5 h-2.5 rounded-full ${movimentoStatus?.temRegistroHoje ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
+                  {movimentoStatus?.temRegistroHoje ? 'Registro do Dia Ativo' : 'Tabela Limpa (Período Noturno)'}
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  Total de registros: {movimentoStatus?.totalRegistros ?? 0}
+                </span>
+              </div>
+
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 flex flex-col gap-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Próxima Ação Programada
+                </span>
+                <span className="font-bold text-slate-900 text-xs text-amber-700">
+                  {movimentoStatus?.proximaAcao || 'Aguardando próximo ciclo...'}
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  Ciclo diário: 08h Inserir ➔ 20h Apagar
+                </span>
+              </div>
+
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 flex flex-col gap-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Última Execução
+                </span>
+                <span className="font-bold text-slate-800 text-xs truncate">
+                  {movimentoStatus?.ultimaAcao || 'Inicializado pelo sistema'}
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  Monitoramento a cada 30 segundos
+                </span>
+              </div>
+            </div>
+
+            {/* Botões de Ação de Teste */}
+            <div className="flex flex-wrap items-center gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={handleLancarTesteMeiaNoite}
+                disabled={loadingMovimento}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <Moon className="w-3.5 h-3.5" />
+                <span>Lançar Teste Hoje (Apagar à Meia-Noite)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleLancarMovimento}
+                disabled={loadingMovimento}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Testar Lançamento Agora (Simular 08h)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleApagarMovimento}
+                disabled={loadingMovimento}
+                className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Testar Remoção Agora (Simular 20h)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCopySql}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ml-auto"
+              >
+                {copiedSql ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    <span className="text-emerald-700">Script SQL Copiado!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copiar Script SQL</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Script SQL Visível */}
+            <div className="bg-slate-900 rounded-2xl p-4 text-xs font-mono text-slate-200 overflow-x-auto relative">
+              <div className="flex items-center justify-between text-[11px] text-slate-400 pb-2 border-b border-slate-800 mb-3 font-sans">
+                <span className="font-bold text-slate-300">Script SQL para Criação da Tabela Movimento no PostgreSQL / Supabase:</span>
+                <span className="text-[10px] text-emerald-400 font-mono">Pronto para Execução</span>
+              </div>
+              <pre className="text-[11px] leading-relaxed text-emerald-300 selection:bg-emerald-900">
+{sqlCreationScript}
+              </pre>
             </div>
           </div>
         </div>

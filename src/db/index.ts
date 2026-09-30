@@ -13,7 +13,29 @@ export const createPool = () => {
   if (!global._postgresPool) {
     let config: PoolConfig;
 
-    if (process.env.SQL_HOST) {
+    const supabaseHost = process.env.PGHOST || 'db.dpaylubvupjjokpukuxy.supabase.co';
+    const supabasePass = process.env.SUPABASE_DB_PASSWORD || process.env.PGPASSWORD || 'Ojf6994@#gestaoPessoas';
+    const supabaseUser = process.env.PGUSER || 'postgres';
+    const supabaseDb = process.env.PGDATABASE || 'postgres';
+
+    // Prioridade 1: Supabase PostgreSQL (Banco Oficial do Projeto)
+    if (supabaseHost && (supabaseHost.includes('supabase.co') || process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL)) {
+      config = {
+        host: supabaseHost,
+        user: supabaseUser,
+        password: supabasePass,
+        database: supabaseDb,
+        port: Number(process.env.PGPORT || 5432),
+        ssl: { rejectUnauthorized: false },
+        max: 10,
+        min: 0,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000,
+        keepAlive: true,
+        keepAliveInitialDelayMillis: 10000,
+      };
+      console.log(`[PostgreSQL Pool] Conectando ao Banco Supabase Oficial: ${supabaseHost} (${supabaseDb})`);
+    } else if (process.env.SQL_HOST) {
       config = {
         host: process.env.SQL_HOST,
         user: process.env.SQL_ADMIN_USER || process.env.SQL_USER || 'ai_studio_admin',
@@ -27,8 +49,8 @@ export const createPool = () => {
         keepAlive: true,
         keepAliveInitialDelayMillis: 10000,
       };
-    } else if (process.env.DATABASE_URL || process.env.POSTGRES_URL) {
-      const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+    } else if (process.env.DATABASE_URL) {
+      const connectionString = process.env.DATABASE_URL;
       config = {
         connectionString,
         ssl: connectionString?.includes('supabase.co') ? { rejectUnauthorized: false } : undefined,
@@ -41,10 +63,10 @@ export const createPool = () => {
       };
     } else {
       config = {
-        host: process.env.PGHOST || 'db.dpaylubvupjjokpukuxy.supabase.co',
-        user: process.env.PGUSER || 'postgres',
-        password: process.env.PGPASSWORD || 'Ojf6994@#gestaoPessoas',
-        database: process.env.PGDATABASE || 'postgres',
+        host: supabaseHost,
+        user: supabaseUser,
+        password: supabasePass,
+        database: supabaseDb,
         port: Number(process.env.PGPORT || 5432),
         ssl: { rejectUnauthorized: false },
         max: 10,
