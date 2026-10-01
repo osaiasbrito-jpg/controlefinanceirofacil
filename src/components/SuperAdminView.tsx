@@ -1317,6 +1317,66 @@ CREATE INDEX IF NOT EXISTS "idx_movimento_data" ON "movimento" ("data");`;
               </button>
             </div>
 
+            {/* Tabela de Registros Atuais em Tempo Real */}
+            <div className="border border-slate-200/80 rounded-2xl overflow-hidden bg-white shadow-xs">
+              <div className="p-3.5 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between">
+                <span className="text-xs font-black text-slate-800 flex items-center gap-2">
+                  <Database className="w-4 h-4 text-indigo-600" />
+                  Registros Atuais na Tabela <code className="text-indigo-600 font-mono">movimento</code> (Dados no Banco)
+                </span>
+                <span className="text-[10px] font-bold px-2.5 py-0.5 bg-indigo-50 text-indigo-700 rounded-lg border border-indigo-200">
+                  {movimentoStatus?.totalRegistros ?? 0} {movimentoStatus?.totalRegistros === 1 ? 'registro ativo' : 'registros ativos'}
+                </span>
+              </div>
+
+              {movimentoStatus?.registros && movimentoStatus.registros.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-100/70 border-b border-slate-200/60 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                        <th className="p-3">ID</th>
+                        <th className="p-3">Data Lançamento</th>
+                        <th className="p-3">Hora</th>
+                        <th className="p-3">Tipo</th>
+                        <th className="p-3">Status</th>
+                        <th className="p-3">Descrição</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {movimentoStatus.registros.map((reg: any) => (
+                        <tr key={reg.id} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="p-3 font-mono font-bold text-slate-700">#{reg.id}</td>
+                          <td className="p-3 font-bold text-slate-900">{reg.data_formatada || (typeof reg.data === 'string' ? reg.data.substring(0, 10) : reg.data)}</td>
+                          <td className="p-3 font-mono text-slate-600">{reg.hora_lancamento || '--:--:--'}</td>
+                          <td className="p-3">
+                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${
+                              reg.tipo === 'TESTE_MEIA_NOITE'
+                                ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                                : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                            }`}>
+                              {reg.tipo || 'KEEP_ALIVE'}
+                            </span>
+                          </td>
+                          <td className="p-3">
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-800 rounded-md text-[10px] font-bold">
+                              {reg.status || 'ATIVO'}
+                            </span>
+                          </td>
+                          <td className="p-3 text-slate-600 max-w-xs truncate" title={reg.descricao}>
+                            {reg.descricao}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="p-6 text-center text-xs text-slate-400 bg-slate-50/50">
+                  A tabela <code>movimento</code> está vazia neste momento. (O ciclo diurno inicia às 08h00 da manhã).
+                </div>
+              )}
+            </div>
+
             {/* Histórico Recente de Execuções e Auditoria */}
             <div className="border border-slate-200/80 rounded-2xl overflow-hidden bg-slate-50/50">
               <div className="p-3.5 bg-slate-100/70 border-b border-slate-200/80 flex items-center justify-between">

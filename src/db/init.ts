@@ -356,6 +356,84 @@ export async function ensureDatabaseTables() {
       );
 
       CREATE INDEX IF NOT EXISTS "idx_movimento_historico_data" ON "movimento_historico" ("data");
+
+      -- Funções para automação diária diretamente no banco
+      CREATE OR REPLACE FUNCTION lancar_movimento_diario()
+      RETURNS void AS $fn$
+      DECLARE
+        v_data_br DATE;
+        v_hora VARCHAR(20);
+        v_data_formatada VARCHAR(20);
+      BEGIN
+        v_data_br := (NOW() AT TIME ZONE 'America/Sao_Paulo')::date;
+        v_hora := TO_CHAR(NOW() AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI:SS');
+        v_data_formatada := TO_CHAR(v_data_br, 'DD/MM/YYYY');
+
+        IF NOT EXISTS (SELECT 1 FROM "movimento" WHERE "data" = v_data_br) THEN
+          INSERT INTO "movimento" (
+            "data", "data_formatada", "hora_lancamento", "descricao", "tipo", "status", "created_at", "updated_at"
+          ) VALUES (
+            v_data_br, v_data_formatada, v_hora,
+            'Atividade Diária 08h - Manutenção de Banco Ativo (Supabase Keep-Alive)',
+            'KEEP_ALIVE', 'ATIVO', NOW(), NOW()
+          );
+        END IF;
+
+        INSERT INTO "movimento_historico" (
+          "data", "data_formatada", "hora_execucao", "acao", "descricao", "status", "executado_por"
+        ) VALUES (
+          v_data_br, v_data_formatada, v_hora,
+          'INSERCAO_08H',
+          'Data lançada com sucesso às 08h da manhã (' || v_data_formatada || ' às ' || v_hora || ') para manter o banco ativo',
+          'SUCESSO', 'PG_CRON_AUTOMATICO'
+        );
+      END;
+      $fn$ LANGUAGE plpgsql;
+
+      CREATE OR REPLACE FUNCTION apagar_movimento_diario()
+      RETURNS void AS $fn$
+      DECLARE
+        v_data_br DATE;
+        v_hora VARCHAR(20);
+        v_data_formatada VARCHAR(20);
+        v_qtd INTEGER;
+      BEGIN
+        v_data_br := (NOW() AT TIME ZONE 'America/Sao_Paulo')::date;
+        v_hora := TO_CHAR(NOW() AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI:SS');
+        v_data_formatada := TO_CHAR(v_data_br, 'DD/MM/YYYY');
+
+        WITH deleted AS (
+          DELETE FROM "movimento" RETURNING *
+        )
+        SELECT count(*) INTO v_qtd FROM deleted;
+
+        INSERT INTO "movimento_historico" (
+          "data", "data_formatada", "hora_execucao", "acao", "descricao", "status", "executado_por"
+        ) VALUES (
+          v_data_br, v_data_formatada, v_hora,
+          'REMOCAO_20H',
+          'Data apagada com sucesso às 20h da noite (' || v_data_formatada || ' às ' || v_hora || ') conforme rotina diária (' || v_qtd || ' registro(s) removido(s))',
+          'SUCESSO', 'PG_CRON_AUTOMATICO'
+        );
+      END;
+      $fn$ LANGUAGE plpgsql;
+
+      DO $cron_block$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+          IF NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'movimento-lancar-08h') THEN
+            PERFORM cron.schedule('movimento-lancar-08h', '0 11 * * *', 'SELECT lancar_movimento_diario()');
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'movimento-apagar-20h') THEN
+            PERFORM cron.schedule('movimento-apagar-20h', '0 23 * * *', 'SELECT apagar_movimento_diario()');
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'movimento-apagar-meia-noite') THEN
+            PERFORM cron.schedule('movimento-apagar-meia-noite', '0 3 * * *', 'SELECT apagar_movimento_diario()');
+          END IF;
+        END IF;
+      EXCEPTION WHEN OTHERS THEN
+        NULL;
+      END $cron_block$;
     `);
 
     // 2. Ensure all columns exist even if tables were created previously

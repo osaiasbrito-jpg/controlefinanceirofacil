@@ -206,35 +206,36 @@ export async function apagarMovimento(options?: { targetDate?: string; forceAll?
 
       const deleteRes = await client.query(query, params);
 
-      lastLoggedAction = `REMOÇÃO_20H (${bDate.dateFormattedBR} às ${bDate.timeFormatted})`;
-      lastActionTimestamp = new Date().toISOString();
+      const deletedCount = deleteRes.rowCount || 0;
 
-      if (deleteRes.rowCount && deleteRes.rowCount > 0) {
-        console.log(`[Movimento Banco Ativo] 🗑️ Data apagada com sucesso às ${bDate.timeFormatted}: ${deleteRes.rowCount} registro(s) removido(s) da tabela movimento.`);
-      }
+      if (deletedCount > 0) {
+        lastLoggedAction = `REMOÇÃO_20H (${bDate.dateFormattedBR} às ${bDate.timeFormatted})`;
+        lastActionTimestamp = new Date().toISOString();
+        console.log(`[Movimento Banco Ativo] 🗑️ Data apagada com sucesso às ${bDate.timeFormatted}: ${deletedCount} registro(s) removido(s) da tabela movimento.`);
 
-      // Gravação no histórico auditável
-      try {
-        await client.query(
-          `INSERT INTO "movimento_historico" (
-            "data", "data_formatada", "hora_execucao", "acao", "descricao", "status", "executado_por", "created_at"
-          ) VALUES ($1, $2, $3, 'REMOCAO_20H', $4, 'SUCESSO', 'SISTEMA_WEB', NOW())`,
-          [
-            bDate.dateStr,
-            bDate.dateFormattedBR,
-            bDate.timeFormatted,
-            `Data apagada às 20h da noite conforme rotina diária (${deleteRes.rowCount || 0} registro(s) removido(s))`,
-          ]
-        );
-      } catch (hErr) {
-        console.warn('Aviso ao gravar histórico de remoção:', hErr);
+        // Gravação no histórico auditável apenas se de fato excluiu algo
+        try {
+          await client.query(
+            `INSERT INTO "movimento_historico" (
+              "data", "data_formatada", "hora_execucao", "acao", "descricao", "status", "executado_por", "created_at"
+            ) VALUES ($1, $2, $3, 'REMOCAO_20H', $4, 'SUCESSO', 'SISTEMA_WEB', NOW())`,
+            [
+              bDate.dateStr,
+              bDate.dateFormattedBR,
+              bDate.timeFormatted,
+              `Data apagada às 20h da noite conforme rotina diária (${deletedCount} registro(s) removido(s))`,
+            ]
+          );
+        } catch (hErr) {
+          console.warn('Aviso ao gravar histórico de remoção:', hErr);
+        }
       }
 
       return {
         success: true,
         action: 'REMOVIDO',
-        deletedCount: deleteRes.rowCount || 0,
-        message: `${deleteRes.rowCount || 0} registro(s) apagado(s) da tabela movimento conforme rotina das 20h.`,
+        deletedCount,
+        message: `${deletedCount} registro(s) apagado(s) da tabela movimento conforme rotina das 20h.`,
         deletedRecords: deleteRes.rows,
         brasiliaTime: bDate,
       };
@@ -325,12 +326,19 @@ export async function executarCicloMovimento(): Promise<any> {
       return await lancarMovimento();
     } else {
       // Período Noturno (20:00 às 07:59):
-      // Verifica se existe algum registro com tipo TESTE_MEIA_NOITE
+      // Verifica se existe algum registro com tipo TESTE_MEIA_NOITE ou testes manuais
       const client = await pool.connect();
       let hasMidnightTest = false;
       try {
         const checkTest = await client.query(
-          "SELECT * FROM \"movimento\" WHERE (\"tipo\" = 'TESTE_MEIA_NOITE' OR \"status\" = 'ATIVO_ATE_MEIA_NOITE') LIMIT 5"
+          `SELECT * FROM "movimento" 
+           WHERE "tipo" = 'TESTE_MEIA_NOITE' 
+              OR "status" = 'ATIVO_ATE_MEIA_NOITE'
+              OR "tipo" ILIKE '%TESTE%'
+              OR "descricao" ILIKE '%meia-noite%'
+              OR "descricao" ILIKE '%meianoite%'
+              OR "descricao" ILIKE '%teste%'
+           LIMIT 10`
         );
         hasMidnightTest = checkTest.rows.length > 0;
       } finally {
@@ -351,7 +359,18 @@ export async function executarCicloMovimento(): Promise<any> {
         };
       }
 
-      // Se for 00h (meia-noite em ponto ou madrugada): apaga os registros da data atual ou anterior
+      // Se for 00h (meia-noite em ponto ou madrugada): verifica se há registros para apagar
+      const checkRecords = await client.query('SELECT count(*) as count FROM "movimento"');
+      const totalCount = parseInt(checkRecords.rows[0]?.count || '0', 10);
+      if (totalCount === 0) {
+        return {
+          success: true,
+          action: 'TABELA_VAZIA',
+          message: 'Tabela movimento já está limpa. Aguardando próximo lançamento às 08h da manhã.',
+          brasiliaTime: bDate,
+        };
+      }
+
       return await apagarMovimento({ targetDate: bDate.dateStr });
     }
   } catch (error: any) {

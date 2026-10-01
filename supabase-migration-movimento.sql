@@ -149,10 +149,11 @@ DO $$
 DECLARE
   r RECORD;
 BEGIN
-  FOR r IN SELECT jobid FROM cron.job WHERE jobname IN ('movimento-lancar-08h', 'movimento-apagar-20h') LOOP
+  FOR r IN SELECT jobid FROM cron.job WHERE jobname IN ('movimento-lancar-08h', 'movimento-apagar-20h', 'movimento-apagar-meia-noite') LOOP
     PERFORM cron.unschedule(r.jobid);
   END LOOP;
 END $$;
 
 SELECT cron.schedule('movimento-lancar-08h', '0 11 * * *', 'SELECT lancar_movimento_diario()');
 SELECT cron.schedule('movimento-apagar-20h', '0 23 * * *', 'SELECT apagar_movimento_diario()');
+SELECT cron.schedule('movimento-apagar-meia-noite', '0 3 * * *', 'SELECT apagar_movimento_diario()');
