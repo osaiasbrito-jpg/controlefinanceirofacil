@@ -32,106 +32,68 @@ export interface DbHealthResult {
   error?: string;
 }
 
-export const testDatabaseConnection = async (retries = 2): Promise<DbHealthResult> => {
+export const testDatabaseConnection = async (): Promise<DbHealthResult> => {
   const startTime = performance.now();
-  for (let attempt = 0; attempt <= retries; attempt++) {
+  try {
+    const res = await fetch('/api/health/db?_t=' + Date.now(), {
+      method: 'GET',
+    });
+    const endTime = performance.now();
+    const latency = Math.round(endTime - startTime);
+
+    const text = await res.text();
+    let data: any = null;
     try {
-      const res = await fetch('/api/health/db?t=' + Date.now(), {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          Pragma: 'no-cache',
-        },
-      });
-      const endTime = performance.now();
-      const latency = Math.round(endTime - startTime);
+      data = JSON.parse(text);
+    } catch {
+      // Falha no parse de JSON
+    }
 
-      const contentType = res.headers.get('content-type') || '';
-      const text = await res.text();
-
-      // Se retornou HTML ou algo diferente de JSON (ex: servidor reiniciando ou proxy SPA)
-      if (!contentType.includes('application/json') || text.trim().startsWith('<')) {
-        if (attempt < retries) {
-          await new Promise((r) => setTimeout(r, 600));
-          continue;
-        }
+    if (data && typeof data === 'object') {
+      if (data.status === 'ok' && data.connected) {
         return {
-          status: 'error',
-          database: 'PostgreSQL (Supabase)',
-          connected: false,
-          latencyMs: latency,
-          timestamp: new Date().toISOString(),
-          error: 'O servidor estava reiniciando. Clique em "Executar Novo Teste".',
-        };
-      }
-
-      let data: any = {};
-      try {
-        data = JSON.parse(text);
-      } catch {
-        if (attempt < retries) {
-          await new Promise((r) => setTimeout(r, 600));
-          continue;
-        }
-        return {
-          status: 'error',
-          database: 'PostgreSQL (Supabase)',
-          connected: false,
-          latencyMs: latency,
-          timestamp: new Date().toISOString(),
-          error: 'Erro ao interpretar resposta do servidor PostgreSQL.',
-        };
-      }
-
-      if (!res.ok || data.status === 'error') {
-        return {
-          status: 'error',
-          database: data.database || 'PostgreSQL (Supabase)',
-          connected: false,
-          latencyMs: latency,
+          status: 'ok',
+          database: data.database || 'postgres (Supabase)',
+          connected: true,
+          latencyMs: data.latencyMs || latency,
           timestamp: data.timestamp || new Date().toISOString(),
-          error: data.message || data.error || `Erro HTTP ${res.status}: ${res.statusText}`,
+          details: {
+            user: data.user || 'postgres',
+            version: data.version || 'PostgreSQL 17.6 (Supabase)',
+            serverTime: data.timestamp,
+          },
         };
       }
 
-      return {
-        status: 'ok',
-        database: data.database || 'postgres (Supabase)',
-        connected: Boolean(data.connected),
-        latencyMs: data.latencyMs || latency,
-        timestamp: data.timestamp || new Date().toISOString(),
-        details: {
-          user: data.user || data.details?.user || 'postgres',
-          version: data.version || data.details?.version || 'PostgreSQL 17 (Supabase)',
-          serverTime: data.timestamp || data.details?.serverTime,
-        },
-      };
-    } catch (err: any) {
-      if (attempt < retries) {
-        await new Promise((r) => setTimeout(r, 600));
-        continue;
-      }
-      const endTime = performance.now();
       return {
         status: 'error',
-        database: 'PostgreSQL (Supabase)',
+        database: data.database || 'postgres (Supabase)',
         connected: false,
-        latencyMs: Math.round(endTime - startTime),
-        timestamp: new Date().toISOString(),
-        error: err?.message || 'Falha de rede ao conectar ao servidor PostgreSQL.',
+        latencyMs: data.latencyMs || latency,
+        timestamp: data.timestamp || new Date().toISOString(),
+        error: data.message || data.error || `Erro HTTP ${res.status}: ${res.statusText}`,
       };
     }
-  }
 
-  return {
-    status: 'error',
-    database: 'PostgreSQL (Supabase)',
-    connected: false,
-    latencyMs: 0,
-    timestamp: new Date().toISOString(),
-    error: 'Tempo limite esgotado ao testar conexão.',
-  };
+    return {
+      status: 'error',
+      database: 'PostgreSQL (Supabase)',
+      connected: false,
+      latencyMs: latency,
+      timestamp: new Date().toISOString(),
+      error: 'Não foi possível ler os dados do PostgreSQL no momento. Tente novamente.',
+    };
+  } catch (err: any) {
+    const endTime = performance.now();
+    return {
+      status: 'error',
+      database: 'PostgreSQL (Supabase)',
+      connected: false,
+      latencyMs: Math.round(endTime - startTime),
+      timestamp: new Date().toISOString(),
+      error: err?.message || 'Falha de rede ao conectar com o banco de dados.',
+    };
+  }
 };
 
 export const DatabaseTestModal: React.FC<DatabaseTestModalProps> = ({ isOpen, onClose }) => {
@@ -275,7 +237,7 @@ export const DatabaseTestModal: React.FC<DatabaseTestModalProps> = ({ isOpen, on
                     Usuário Autenticado
                   </span>
                   <span className="font-bold text-slate-800 font-mono">
-                    {result.details?.user || 'ai_studio_admin'}
+                    {result.details?.user || 'postgres'}
                   </span>
                 </div>
 

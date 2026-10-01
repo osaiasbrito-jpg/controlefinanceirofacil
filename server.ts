@@ -64,6 +64,7 @@ async function startServer() {
       'Access-Control-Allow-Headers',
       'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, X-User-Email, X-User-Password, x-access-password, User-Agent, user-agent, x-user-email, x-user-password, *'
     );
+    res.header('Access-Control-Expose-Headers', '*');
     res.header('Access-Control-Max-Age', '86400');
     if (req.method === 'OPTIONS') {
       return res.sendStatus(200);
