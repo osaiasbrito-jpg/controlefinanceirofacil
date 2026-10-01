@@ -1317,6 +1317,48 @@ CREATE INDEX IF NOT EXISTS "idx_movimento_data" ON "movimento" ("data");`;
               </button>
             </div>
 
+            {/* Histórico Recente de Execuções e Auditoria */}
+            <div className="border border-slate-200/80 rounded-2xl overflow-hidden bg-slate-50/50">
+              <div className="p-3.5 bg-slate-100/70 border-b border-slate-200/80 flex items-center justify-between">
+                <span className="text-xs font-black text-slate-800 flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-emerald-600" />
+                  Histórico de Execuções Automáticas (Auditoria Supabase)
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">
+                  pg_cron Ativo 24/7
+                </span>
+              </div>
+
+              {movimentoStatus?.historico && movimentoStatus.historico.length > 0 ? (
+                <div className="divide-y divide-slate-200/60 max-h-60 overflow-y-auto">
+                  {movimentoStatus.historico.map((item: any) => (
+                    <div key={item.id} className="p-3 text-xs flex items-center justify-between gap-3 hover:bg-slate-100/50 transition-colors">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase shrink-0 ${
+                          item.acao?.includes('INSERCAO') || item.acao?.includes('LANÇADO')
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : item.acao?.includes('REMOCAO') || item.acao?.includes('APAGAR')
+                            ? 'bg-rose-100 text-rose-800'
+                            : 'bg-indigo-100 text-indigo-800'
+                        }`}>
+                          {item.acao}
+                        </span>
+                        <span className="text-slate-700 font-medium truncate">{item.descricao}</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0 text-[11px] font-mono text-slate-400">
+                        <span>{item.data_formatada || item.data}</span>
+                        <span>às {item.hora_execucao || '--:--'}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-6 text-center text-xs text-slate-400">
+                  Nenhuma execução registrada no histórico até o momento.
+                </div>
+              )}
+            </div>
+
             {/* Script SQL Visível */}
             <div className="bg-slate-900 rounded-2xl p-4 text-xs font-mono text-slate-200 overflow-x-auto relative">
               <div className="flex items-center justify-between text-[11px] text-slate-400 pb-2 border-b border-slate-800 mb-3 font-sans">

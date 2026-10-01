@@ -274,6 +274,19 @@ export const movimento = pgTable('movimento', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
+// Tabela de Histórico e Auditoria da Movimentação Diária
+export const movimentoHistorico = pgTable('movimento_historico', {
+  id: serial('id').primaryKey(),
+  data: text('data').notNull(),
+  dataFormatada: text('data_formatada'),
+  horaExecucao: text('hora_execucao'),
+  acao: text('acao').notNull(), // 'INSERCAO_08H' | 'REMOCAO_20H' | 'TESTE'
+  descricao: text('descricao'),
+  status: text('status').default('SUCESSO'),
+  executadoPor: text('executado_por').default('PG_CRON_AUTOMATICO'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   salaries: many(salaries),

@@ -341,6 +341,21 @@ export async function ensureDatabaseTables() {
       );
 
       CREATE INDEX IF NOT EXISTS "idx_movimento_data" ON "movimento" ("data");
+
+      -- Tabela de Histórico e Auditoria de Movimentação Diária
+      CREATE TABLE IF NOT EXISTS "movimento_historico" (
+        "id" SERIAL PRIMARY KEY,
+        "data" DATE NOT NULL DEFAULT CURRENT_DATE,
+        "data_formatada" VARCHAR(20),
+        "hora_execucao" VARCHAR(20),
+        "acao" VARCHAR(50) NOT NULL,
+        "descricao" VARCHAR(255),
+        "status" VARCHAR(50) DEFAULT 'SUCESSO',
+        "executado_por" VARCHAR(50) DEFAULT 'PG_CRON_AUTOMATICO',
+        "created_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS "idx_movimento_historico_data" ON "movimento_historico" ("data");
     `);
 
     // 2. Ensure all columns exist even if tables were created previously
@@ -388,6 +403,22 @@ export async function ensureDatabaseTables() {
       ALTER TABLE "expenses" ADD COLUMN IF NOT EXISTS "is_indefinite" BOOLEAN DEFAULT FALSE;
       ALTER TABLE "expenses" ADD COLUMN IF NOT EXISTS "credit_card_id" TEXT;
       ALTER TABLE "expenses" ADD COLUMN IF NOT EXISTS "payment_method_id" TEXT;
+
+      -- renda_massoterapia columns
+      ALTER TABLE "renda_massoterapia" ADD COLUMN IF NOT EXISTS "cliente_paciente" TEXT;
+      ALTER TABLE "renda_massoterapia" ADD COLUMN IF NOT EXISTS "client_name" TEXT;
+      ALTER TABLE "renda_massoterapia" ADD COLUMN IF NOT EXISTS "procedimento" TEXT;
+      ALTER TABLE "renda_massoterapia" ADD COLUMN IF NOT EXISTS "tecnicas" TEXT;
+      ALTER TABLE "renda_massoterapia" ADD COLUMN IF NOT EXISTS "tipo" TEXT DEFAULT 'Sessão Avulsa';
+      ALTER TABLE "renda_massoterapia" ADD COLUMN IF NOT EXISTS "tipo_sessao" TEXT DEFAULT 'Sessão Avulsa';
+      ALTER TABLE "renda_massoterapia" ADD COLUMN IF NOT EXISTS "status" TEXT DEFAULT 'Realizado';
+      ALTER TABLE "renda_massoterapia" ADD COLUMN IF NOT EXISTS "profissional" TEXT;
+      ALTER TABLE "renda_massoterapia" ADD COLUMN IF NOT EXISTS "mes_referencia" TEXT;
+      ALTER TABLE "renda_massoterapia" ADD COLUMN IF NOT EXISTS "reference_month" TEXT;
+      ALTER TABLE "renda_massoterapia" ADD COLUMN IF NOT EXISTS "origem" TEXT DEFAULT 'Terapias Pro';
+      ALTER TABLE "renda_massoterapia" ADD COLUMN IF NOT EXISTS "dados_extras" JSONB;
+      ALTER TABLE "renda_massoterapia" ADD COLUMN IF NOT EXISTS "data" TEXT;
+      ALTER TABLE "renda_massoterapia" ADD COLUMN IF NOT EXISTS "date" TEXT;
 
       -- indexes
       CREATE INDEX IF NOT EXISTS "idx_users_uid" ON "users" ("uid");

@@ -147,6 +147,24 @@ export async function lancarMovimento(options?: {
       lastActionTimestamp = new Date().toISOString();
       console.log(`[Movimento Banco Ativo] ✅ Data lançada com sucesso às ${bDate.timeFormatted}: ${bDate.dateFormattedBR} (ID: ${insertRes.rows[0]?.id}, Tipo: ${tipo})`);
 
+      // Gravação no histórico auditável
+      try {
+        await client.query(
+          `INSERT INTO "movimento_historico" (
+            "data", "data_formatada", "hora_execucao", "acao", "descricao", "status", "executado_por", "created_at"
+          ) VALUES ($1, $2, $3, $4, $5, 'SUCESSO', 'SISTEMA_WEB', NOW())`,
+          [
+            bDate.dateStr,
+            bDate.dateFormattedBR,
+            bDate.timeFormatted,
+            isMidnightTest ? 'TESTE_MEIA_NOITE' : 'INSERCAO_08H',
+            desc,
+          ]
+        );
+      } catch (hErr) {
+        console.warn('Aviso ao gravar histórico de movimento:', hErr);
+      }
+
       if (isMidnightTest) {
         agendarExclusaoMeiaNoite();
       }
@@ -195,6 +213,23 @@ export async function apagarMovimento(options?: { targetDate?: string; forceAll?
         console.log(`[Movimento Banco Ativo] 🗑️ Data apagada com sucesso às ${bDate.timeFormatted}: ${deleteRes.rowCount} registro(s) removido(s) da tabela movimento.`);
       }
 
+      // Gravação no histórico auditável
+      try {
+        await client.query(
+          `INSERT INTO "movimento_historico" (
+            "data", "data_formatada", "hora_execucao", "acao", "descricao", "status", "executado_por", "created_at"
+          ) VALUES ($1, $2, $3, 'REMOCAO_20H', $4, 'SUCESSO', 'SISTEMA_WEB', NOW())`,
+          [
+            bDate.dateStr,
+            bDate.dateFormattedBR,
+            bDate.timeFormatted,
+            `Data apagada às 20h da noite conforme rotina diária (${deleteRes.rowCount || 0} registro(s) removido(s))`,
+          ]
+        );
+      } catch (hErr) {
+        console.warn('Aviso ao gravar histórico de remoção:', hErr);
+      }
+
       return {
         success: true,
         action: 'REMOVIDO',
@@ -221,6 +256,11 @@ export async function getMovimentoStatus() {
       // Consulta todos os registros presentes
       const recordsRes = await client.query(
         'SELECT * FROM "movimento" ORDER BY "id" DESC LIMIT 50'
+      );
+
+      // Consulta os últimos registros de auditoria no histórico
+      const historicoRes = await client.query(
+        'SELECT * FROM "movimento_historico" ORDER BY "id" DESC LIMIT 15'
       );
 
       const hasActiveToday = recordsRes.rows.some((r: any) => {
@@ -258,9 +298,10 @@ export async function getMovimentoStatus() {
         temTesteMeiaNoite: hasMidnightTest,
         totalRegistros: recordsRes.rows.length,
         proximaAcao: nextAction,
-        ultimaAcao: lastLoggedAction || 'Rotina aguardando próximo horário',
-        ultimaAcaoTimestamp: lastActionTimestamp || null,
+        ultimaAcao: lastLoggedAction || (historicoRes.rows[0]?.descricao ?? 'Rotina aguardando próximo horário'),
+        ultimaAcaoTimestamp: lastActionTimestamp || historicoRes.rows[0]?.created_at || null,
         registros: recordsRes.rows,
+        historico: historicoRes.rows,
       };
     } finally {
       client.release();
