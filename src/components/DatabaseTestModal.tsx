@@ -32,51 +32,106 @@ export interface DbHealthResult {
   error?: string;
 }
 
-export const testDatabaseConnection = async (): Promise<DbHealthResult> => {
+export const testDatabaseConnection = async (retries = 2): Promise<DbHealthResult> => {
   const startTime = performance.now();
-  try {
-    const res = await fetch('/api/health/db', {
-      method: 'GET',
-      headers: {
-        'Cache-Control': 'no-cache',
-        Pragma: 'no-cache',
-      },
-    });
-    const endTime = performance.now();
-    const latency = Math.round(endTime - startTime);
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch('/api/health/db?t=' + Date.now(), {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          Pragma: 'no-cache',
+        },
+      });
+      const endTime = performance.now();
+      const latency = Math.round(endTime - startTime);
 
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
+      const contentType = res.headers.get('content-type') || '';
+      const text = await res.text();
+
+      // Se retornou HTML ou algo diferente de JSON (ex: servidor reiniciando ou proxy SPA)
+      if (!contentType.includes('application/json') || text.trim().startsWith('<')) {
+        if (attempt < retries) {
+          await new Promise((r) => setTimeout(r, 600));
+          continue;
+        }
+        return {
+          status: 'error',
+          database: 'PostgreSQL (Supabase)',
+          connected: false,
+          latencyMs: latency,
+          timestamp: new Date().toISOString(),
+          error: 'O servidor estava reiniciando. Clique em "Executar Novo Teste".',
+        };
+      }
+
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch {
+        if (attempt < retries) {
+          await new Promise((r) => setTimeout(r, 600));
+          continue;
+        }
+        return {
+          status: 'error',
+          database: 'PostgreSQL (Supabase)',
+          connected: false,
+          latencyMs: latency,
+          timestamp: new Date().toISOString(),
+          error: 'Erro ao interpretar resposta do servidor PostgreSQL.',
+        };
+      }
+
+      if (!res.ok || data.status === 'error') {
+        return {
+          status: 'error',
+          database: data.database || 'PostgreSQL (Supabase)',
+          connected: false,
+          latencyMs: latency,
+          timestamp: data.timestamp || new Date().toISOString(),
+          error: data.message || data.error || `Erro HTTP ${res.status}: ${res.statusText}`,
+        };
+      }
+
+      return {
+        status: 'ok',
+        database: data.database || 'postgres (Supabase)',
+        connected: Boolean(data.connected),
+        latencyMs: data.latencyMs || latency,
+        timestamp: data.timestamp || new Date().toISOString(),
+        details: {
+          user: data.user || data.details?.user || 'postgres',
+          version: data.version || data.details?.version || 'PostgreSQL 17 (Supabase)',
+          serverTime: data.timestamp || data.details?.serverTime,
+        },
+      };
+    } catch (err: any) {
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, 600));
+        continue;
+      }
+      const endTime = performance.now();
       return {
         status: 'error',
-        database: 'cloud_sql_development_database',
+        database: 'PostgreSQL (Supabase)',
         connected: false,
-        latencyMs: latency,
+        latencyMs: Math.round(endTime - startTime),
         timestamp: new Date().toISOString(),
-        error: errJson.error || `Erro HTTP ${res.status}: ${res.statusText}`,
+        error: err?.message || 'Falha de rede ao conectar ao servidor PostgreSQL.',
       };
     }
-
-    const data = await res.json();
-    return {
-      status: 'ok',
-      database: data.database || 'cloud_sql_development_database',
-      connected: Boolean(data.connected),
-      latencyMs: data.latencyMs || latency,
-      timestamp: data.timestamp || new Date().toISOString(),
-      details: data.details,
-    };
-  } catch (err: any) {
-    const endTime = performance.now();
-    return {
-      status: 'error',
-      database: 'cloud_sql_development_database',
-      connected: false,
-      latencyMs: Math.round(endTime - startTime),
-      timestamp: new Date().toISOString(),
-      error: err?.message || 'Falha de rede ao conectar ao servidor PostgreSQL.',
-    };
   }
+
+  return {
+    status: 'error',
+    database: 'PostgreSQL (Supabase)',
+    connected: false,
+    latencyMs: 0,
+    timestamp: new Date().toISOString(),
+    error: 'Tempo limite esgotado ao testar conexão.',
+  };
 };
 
 export const DatabaseTestModal: React.FC<DatabaseTestModalProps> = ({ isOpen, onClose }) => {

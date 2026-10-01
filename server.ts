@@ -81,6 +81,8 @@ async function startServer() {
 
   // PostgreSQL Database Health Check
   app.get('/api/health/db', async (_req, res) => {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     try {
       const dbStatus = await testDatabaseConnection();
       res.json(dbStatus);
