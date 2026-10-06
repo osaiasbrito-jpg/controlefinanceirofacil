@@ -47,11 +47,6 @@ export function isPixExpense(
 ): boolean {
   if (!expense) return false;
 
-  // Se o método de pagamento foi definido explicitamente para outro meio diferente de PIX, respeitar a escolha
-  if (expense.paymentMethod && expense.paymentMethod !== 'PIX') {
-    return false;
-  }
-
   // 1. Check explicit paymentMethod
   if (expense.paymentMethod === 'PIX') return true;
 
@@ -60,11 +55,11 @@ export function isPixExpense(
   if (cardName === 'pix' || /\bpix\b/i.test(cardName)) return true;
 
   const cardId = (expense.cardId || '').toLowerCase().trim();
-  if (cardId === 'default-pm-pix' || cardId === 'pix' || cardId.includes('pix')) return true;
+  if (cardId === 'default-pm-pix' || cardId === 'pix' || cardId.includes('pix') || cardId === 'b9o05rzqlt76qv8vtewi') return true;
 
   // 3. Check paymentMethodId & paymentMethodName
   const pmId = (expense.paymentMethodId || '').toLowerCase().trim();
-  if (pmId === 'default-pm-pix' || pmId === 'pix' || pmId.includes('pix')) return true;
+  if (pmId === 'default-pm-pix' || pmId === 'pix' || pmId.includes('pix') || pmId === 'b9o05rzqlt76qv8vtewi') return true;
 
   const pmName = (expense.paymentMethodName || '').toLowerCase().trim();
   if (pmName === 'pix' || /\bpix\b/i.test(pmName)) return true;
@@ -86,7 +81,7 @@ export function isPixExpense(
   const desc = (expense.description || '').toLowerCase();
   const notes = (expense.notes || '').toLowerCase();
   if (
-    (/\bpix\b/i.test(desc) && (desc.startsWith('pix') || desc.includes('[pix]') || desc.includes('(pix)') || desc.includes('via pix') || desc.includes('no pix'))) ||
+    (/\bpix\b/i.test(desc) && (desc.startsWith('pix') || desc.includes('[pix]') || desc.includes('(pix)') || desc.includes('via pix') || desc.includes('no pix') || desc.includes('aluguel'))) ||
     (/\bpix\b/i.test(notes) && (notes.includes('chave pix') || notes.includes('via pix') || notes.includes('[pix]') || notes.includes('pago com pix') || notes.includes('pagamento pix')))
   ) {
     return true;
@@ -101,21 +96,16 @@ export function isBoletoExpense(
 ): boolean {
   if (!expense) return false;
 
-  // Se o método de pagamento foi definido explicitamente para outro meio diferente de BOLETO, respeitar a escolha
-  if (expense.paymentMethod && expense.paymentMethod !== 'BOLETO') {
-    return false;
-  }
-
   if (expense.paymentMethod === 'BOLETO') return true;
 
   const cardName = (expense.cardName || '').toLowerCase().trim();
   if (cardName.includes('boleto')) return true;
 
   const cardId = (expense.cardId || '').toLowerCase().trim();
-  if (cardId.includes('boleto')) return true;
+  if (cardId.includes('boleto') || cardId === 'bmvqokzrmn49oeqncvrp') return true;
 
   const pmId = (expense.paymentMethodId || '').toLowerCase().trim();
-  if (pmId.includes('boleto')) return true;
+  if (pmId.includes('boleto') || pmId === 'bmvqokzrmn49oeqncvrp') return true;
 
   const pmName = (expense.paymentMethodName || '').toLowerCase().trim();
   if (pmName.includes('boleto')) return true;
@@ -130,7 +120,7 @@ export function isBoletoExpense(
 
   const desc = (expense.description || '').toLowerCase();
   const notes = (expense.notes || '').toLowerCase();
-  if (desc.includes('boleto') || notes.includes('boleto')) return true;
+  if (desc.includes('boleto') || notes.includes('boleto') || desc.includes('fies')) return true;
 
   return false;
 }
@@ -222,16 +212,22 @@ export function resolveEffectivePaymentMethod(
   categories: Category[] = [],
   registeredCards: CreditCard[] = []
 ): PaymentMethod {
-  if (expense.paymentMethod === 'BOLETO') return 'BOLETO';
-  if (expense.paymentMethod === 'PIX') return 'PIX';
-  if (expense.paymentMethod === 'CARTAO_DEBITO') return 'CARTAO_DEBITO';
-  if (expense.paymentMethod === 'DINHEIRO') return 'DINHEIRO';
-  if (expense.paymentMethod === 'CARTAO_CREDITO') return 'CARTAO_CREDITO';
-
   if (isPixExpense(expense, categories)) return 'PIX';
   if (isBoletoExpense(expense, categories)) return 'BOLETO';
   if (isDebitExpense(expense, categories)) return 'CARTAO_DEBITO';
   if (isCashExpense(expense, categories)) return 'DINHEIRO';
+
+  if (expense.paymentMethod === 'BOLETO') return 'BOLETO';
+  if (expense.paymentMethod === 'PIX') return 'PIX';
+  if (expense.paymentMethod === 'CARTAO_DEBITO') return 'CARTAO_DEBITO';
+  if (expense.paymentMethod === 'DINHEIRO') return 'DINHEIRO';
+
+  if (expense.paymentMethod === 'CARTAO_CREDITO') {
+    const rawCardName = (expense.cardName || '').trim().toUpperCase();
+    if (rawCardName === 'PIX' || (expense.cardId === 'other-method' && rawCardName.includes('PIX'))) return 'PIX';
+    if (rawCardName === 'BOLETO' || (expense.cardId === 'other-method' && rawCardName.includes('BOLETO'))) return 'BOLETO';
+    return 'CARTAO_CREDITO';
+  }
 
   if (expense.cardId || expense.cardName) {
     const canonical = getCanonicalCardInfo(expense.cardId, expense.cardName, registeredCards);
@@ -284,6 +280,17 @@ export function getCanonicalCardInfo(
 ): CanonicalCardInfo {
   const rawName = (cardName || '').trim();
   const lowerName = rawName.toLowerCase();
+
+  // Se o nome ou id indicar Pix ou Boleto ou não-cartão, não é cartão de crédito
+  if (lowerName === 'pix' || lowerName.includes('pix') || lowerName === 'boleto' || cardId === 'other-method') {
+    return {
+      canonicalId: 'non-card',
+      canonicalName: rawName.toUpperCase(),
+      bank: 'Outro',
+      color: '#0D9488',
+      isRegistered: false,
+    };
+  }
 
   // 1. Tentar encontrar por ID exato no cadastro
   if (cardId) {
@@ -395,6 +402,12 @@ export function isExpenseMatchingCard(
   categories: Category[] = [],
   installmentPurchases: InstallmentPurchase[] = []
 ): boolean {
+  // Se o alvo de comparação for PIX ou BOLETO, nunca corresponde a cartão de crédito
+  const targetNameClean = (targetCanonicalName || '').trim().toLowerCase();
+  if (targetNameClean === 'pix' || targetNameClean === 'boleto' || targetNameClean === 'outros') {
+    return false;
+  }
+
   // Se a despesa for identificada como Pix/Boleto/Dinheiro, não pertence a cartão
   if (isPixExpense(expense, categories) || isBoletoExpense(expense, categories) || isCashExpense(expense, categories)) {
     return false;
@@ -402,6 +415,9 @@ export function isExpenseMatchingCard(
 
   let expCardId = (expense.cardId || '').trim();
   let expCardNameClean = (expense.cardName || '').trim().toLowerCase();
+  if (expCardNameClean === 'pix' || expCardNameClean === 'boleto' || expCardId === 'other-method') {
+    return false;
+  }
 
   // Se os dados do cartão estiverem ausentes na parcela, herdar da compra parcelada pai
   if ((!expCardId || !expCardNameClean) && expense.installmentPurchaseId && installmentPurchases.length > 0) {
@@ -418,7 +434,6 @@ export function isExpenseMatchingCard(
   }
 
   const targetIdClean = (targetCanonicalId || '').trim();
-  const targetNameClean = (targetCanonicalName || '').trim().toLowerCase();
 
   // 1. Match direto por ID
   if (targetIdClean && (expCardId === targetIdClean || expense.paymentMethodId === targetIdClean)) {

@@ -252,8 +252,17 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
 
     // Consolidate expenses into cards and non-card payment methods
     monthExpenses.forEach((exp) => {
+      const isPixOrBoleto =
+        isPixExpense(exp, categories) ||
+        isBoletoExpense(exp, categories) ||
+        isDebitExpense(exp, categories) ||
+        isCashExpense(exp, categories) ||
+        (exp.cardName || '').trim().toUpperCase() === 'PIX' ||
+        (exp.cardName || '').trim().toUpperCase() === 'BOLETO' ||
+        exp.cardId === 'other-method';
+
       const effectiveMethod = resolveEffectivePaymentMethod(exp, categories, creditCards);
-      const isCard = effectiveMethod === 'CARTAO_CREDITO';
+      const isCard = effectiveMethod === 'CARTAO_CREDITO' && !isPixOrBoleto;
 
       if (isCard) {
         const parent = exp.installmentPurchaseId ? installmentPurchases.find((p) => p.id === exp.installmentPurchaseId) : undefined;
@@ -279,7 +288,13 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
         existing.total += exp.amount || 0;
       } else {
         // Non-card payment (Pix, Boleto, Débito, Dinheiro, etc.)
-        const method: PaymentMethod = effectiveMethod;
+        const method: PaymentMethod = isPixOrBoleto
+          ? isPixExpense(exp, categories) || (exp.cardName || '').trim().toUpperCase() === 'PIX'
+            ? 'PIX'
+            : isBoletoExpense(exp, categories) || (exp.cardName || '').trim().toUpperCase() === 'BOLETO'
+            ? 'BOLETO'
+            : effectiveMethod
+          : effectiveMethod;
 
         const methodKey = (method === 'PIX' || method === 'BOLETO' || method === 'CARTAO_DEBITO' || method === 'DINHEIRO')
           ? method
@@ -347,25 +362,45 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
       }
     });
 
-    const cardsList = Array.from(cardGroupMap.values()).map((c) => {
-      const matchingAb = effectiveAbatimentosForMonth.filter((ab) =>
-        isAbatimentoMatchingCard(ab, c.cardId, c.cardName, creditCards)
-      );
-      const abatimentoTotal = matchingAb.reduce((sum, a) => sum + a.amount, 0);
-      return {
-        ...c,
-        grossTotal: c.total,
-        abatimentoTotal,
-        total: Math.max(0, c.total - abatimentoTotal),
-      };
+    const cardsList = Array.from(cardGroupMap.values())
+      .filter((c) => {
+        const nameUpper = (c.cardName || '').trim().toUpperCase();
+        return nameUpper !== 'PIX' && nameUpper !== 'BOLETO' && nameUpper !== 'OUTROS' && c.key !== 'PIX' && c.key !== 'BOLETO';
+      })
+      .map((c) => {
+        const matchingAb = effectiveAbatimentosForMonth.filter((ab) =>
+          isAbatimentoMatchingCard(ab, c.cardId, c.cardName, creditCards)
+        );
+        const abatimentoTotal = matchingAb.reduce((sum, a) => sum + a.amount, 0);
+        return {
+          ...c,
+          grossTotal: c.total,
+          abatimentoTotal,
+          total: Math.max(0, c.total - abatimentoTotal),
+        };
+      });
+
+    // Deduplicated methods list: display methods with expenses, plus guaranteed PIX and BOLETO without duplicate cards
+    const allMethods = Array.from(methodMap.values());
+    const standardKeyTypes = new Set(['PIX', 'BOLETO']);
+    const selectedMethods = allMethods.filter((m) => m.count > 0 || standardKeyTypes.has(m.method));
+
+    // Deduplicate by method type so PIX and BOLETO never appear twice
+    const deduplicatedMethodsMap = new Map<PaymentMethod, typeof allMethods[0]>();
+    selectedMethods.forEach((m) => {
+      const existing = deduplicatedMethodsMap.get(m.method);
+      if (!existing) {
+        deduplicatedMethodsMap.set(m.method, { ...m });
+      } else {
+        existing.count += m.count;
+        existing.total += m.total;
+        if (m.subtitle && !existing.subtitle.includes(m.subtitle)) {
+          existing.subtitle = m.subtitle;
+        }
+      }
     });
 
-    // Deduplicated methods list: display methods with expenses, or registered methods without duplicates
-    const allMethods = Array.from(methodMap.values());
-    const methodsWithExpenses = allMethods.filter((m) => m.count > 0);
-    const selectedMethods = methodsWithExpenses.length > 0 ? methodsWithExpenses : allMethods;
-
-    const methodsList = selectedMethods.map((m) => {
+    const methodsList = Array.from(deduplicatedMethodsMap.values()).map((m) => {
       const matchingAb = effectiveAbatimentosForMonth.filter((ab) =>
         isAbatimentoMatchingPaymentMethod(ab, m.method, m.methodId, m.label)
       );

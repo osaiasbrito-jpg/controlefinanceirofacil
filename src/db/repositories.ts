@@ -244,10 +244,30 @@ export async function getFullUserData(userId: string, userEmail?: string) {
     const purchaseMap = new Map((userInstallments || []).map((p) => [p.id, p]));
     const mappedExpenses = userExpenses.map((exp) => {
       const parent = exp.installmentPurchaseId ? purchaseMap.get(exp.installmentPurchaseId) : undefined;
-      const effectiveCardId = exp.creditCardId || (exp as any).cardId || parent?.cardId || null;
-      const effectiveCardName = exp.creditCardName || (exp as any).cardName || parent?.cardName || null;
+      const rawCardId = exp.creditCardId || (exp as any).cardId || parent?.cardId || null;
+      const rawCardName = exp.creditCardName || (exp as any).cardName || parent?.cardName || null;
+
+      const isPix =
+        exp.paymentMethod === 'PIX' ||
+        (rawCardName && rawCardName.toUpperCase() === 'PIX') ||
+        (rawCardId && String(rawCardId).toLowerCase().includes('pix')) ||
+        (exp.description && /\bpix\b/i.test(exp.description) && !/\b(banco\s*inter|mercado\s*pago)\b/i.test(exp.description));
+
+      const isBoleto =
+        exp.paymentMethod === 'BOLETO' ||
+        (rawCardName && rawCardName.toUpperCase() === 'BOLETO') ||
+        (rawCardId && String(rawCardId).toLowerCase().includes('boleto')) ||
+        (exp.description && /\b(fies|boleto)\b/i.test(exp.description));
+
+      const paymentMethod = isPix ? 'PIX' : isBoleto ? 'BOLETO' : (exp.paymentMethod || 'CARTAO_CREDITO');
+      const isCard = paymentMethod === 'CARTAO_CREDITO' && rawCardName?.toUpperCase() !== 'PIX' && rawCardName?.toUpperCase() !== 'BOLETO' && rawCardId !== 'other-method';
+
+      const effectiveCardId = isCard ? rawCardId : null;
+      const effectiveCardName = isCard ? rawCardName : null;
+
       return {
         ...exp,
+        paymentMethod,
         cardId: effectiveCardId,
         cardName: effectiveCardName,
         creditCardId: effectiveCardId,

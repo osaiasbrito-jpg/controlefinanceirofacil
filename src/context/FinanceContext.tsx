@@ -994,6 +994,12 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
               const base = useLocal ? formatted : existing;
               const override = useLocal ? existing : formatted;
 
+              const isPix = formatted.paymentMethod === 'PIX' || isPixExpense(formatted);
+              const isBoleto = formatted.paymentMethod === 'BOLETO' || isBoletoExpense(formatted);
+
+              const mergedPaymentMethod = isPix ? 'PIX' : isBoleto ? 'BOLETO' : (override.paymentMethod || base.paymentMethod);
+              const isCard = mergedPaymentMethod === 'CARTAO_CREDITO';
+
               // Merge seguro e não destrutivo: dados preexistentes nunca são apagados
               const merged: Expense = {
                 ...base,
@@ -1005,11 +1011,11 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
                 status: override.status || base.status,
                 categoryId: override.categoryId || base.categoryId,
                 categoryName: override.categoryName || base.categoryName,
-                paymentMethod: override.paymentMethod || base.paymentMethod,
-                paymentMethodId: override.paymentMethodId !== undefined ? override.paymentMethodId : base.paymentMethodId,
-                paymentMethodName: override.paymentMethodName !== undefined ? override.paymentMethodName : base.paymentMethodName,
-                cardId: override.cardId !== undefined ? override.cardId : base.cardId,
-                cardName: override.cardName !== undefined ? override.cardName : base.cardName,
+                paymentMethod: mergedPaymentMethod,
+                paymentMethodId: isCard ? (override.paymentMethodId !== undefined ? override.paymentMethodId : base.paymentMethodId) : (isPix ? 'b9o05RzQlt76qv8vTewi' : base.paymentMethodId),
+                paymentMethodName: isCard ? (override.paymentMethodName !== undefined ? override.paymentMethodName : base.paymentMethodName) : (isPix ? 'PIX' : isBoleto ? 'BOLETO' : base.paymentMethodName),
+                cardId: isCard ? (override.cardId !== undefined ? override.cardId : base.cardId) : undefined,
+                cardName: isCard ? (override.cardName !== undefined ? override.cardName : base.cardName) : undefined,
                 isInstallment: override.isInstallment ?? base.isInstallment,
                 isIndefinite: override.isIndefinite ?? base.isIndefinite,
                 installmentNumber: override.installmentNumber ?? base.installmentNumber,
@@ -1018,6 +1024,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
                 notes: override.notes !== undefined ? override.notes : base.notes,
               };
               if (
+                existing.paymentMethod !== merged.paymentMethod ||
                 existing.cardId !== merged.cardId ||
                 existing.cardName !== merged.cardName ||
                 existing.amount !== merged.amount ||
@@ -1026,6 +1033,9 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
               ) {
                 map.set(pgExp.id, merged);
                 hasChange = true;
+                if (currentUser?.uid && !isDemoUser) {
+                  setDoc(doc(db, 'expenses', formatted.id), sanitizeData(merged), { merge: true }).catch(() => {});
+                }
               }
             }
           });
