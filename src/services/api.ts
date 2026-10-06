@@ -17,9 +17,11 @@ export interface DbSyncPayload {
   settings?: any;
 }
 
-export const CLOUD_RUN_URL = typeof window !== 'undefined' && !window.location.hostname.includes('netlify.app')
-  ? window.location.origin
-  : '';
+export const CLOUD_RUN_URL = typeof window !== 'undefined'
+  ? (window.location.hostname.includes('netlify.app')
+      ? 'https://ais-pre-ca2j6yzl6qm4otgueyocuu-440149738355.us-east1.run.app'
+      : window.location.origin)
+  : 'https://ais-pre-ca2j6yzl6qm4otgueyocuu-440149738355.us-east1.run.app';
 
 /**
  * Executa fetch resiliente:
@@ -182,6 +184,54 @@ export async function deleteEntityFromPostgres(
     return await res.json();
   } catch (error) {
     console.warn(`Aviso ao deletar ${table} #${id} do PostgreSQL:`, error);
+    return null;
+  }
+}
+
+export async function updateExpenseInPostgres(id: string, data: Record<string, any>, idToken?: string) {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (idToken) {
+      headers['Authorization'] = `Bearer ${idToken}`;
+    }
+
+    const res = await resilientFetch(`/api/expenses/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(data),
+    });
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    return await res.json();
+  } catch (error) {
+    console.warn(`Aviso ao atualizar despesa #${id} no PostgreSQL:`, error);
+    return null;
+  }
+}
+
+export async function updateMultipleExpensesStatusInPostgres(ids: string[], status: 'PAGA' | 'PENDENTE', idToken?: string) {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (idToken) {
+      headers['Authorization'] = `Bearer ${idToken}`;
+    }
+
+    const res = await resilientFetch('/api/expenses/bulk-status', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ids, status }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    return await res.json();
+  } catch (error) {
+    console.warn('Aviso ao atualizar status em lote no PostgreSQL:', error);
     return null;
   }
 }

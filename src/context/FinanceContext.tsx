@@ -66,6 +66,8 @@ import {
   autoImportDatabaseSessions,
   saveAbatimentoToPostgres,
   deleteAbatimentoFromPostgres,
+  updateExpenseInPostgres,
+  updateMultipleExpensesStatusInPostgres,
 } from '../services/api';
 
 // Sanitize object before sending to Firestore to avoid 'undefined' field errors
@@ -317,6 +319,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const isRefreshingFromPgRef = useRef<boolean>(false);
   const isSyncingToPgRef = useRef<boolean>(false);
   const deletedRecordIdsRef = useRef<Set<string>>(new Set<string>());
+  const recentStatusUpdatesRef = useRef<Map<string, { status: 'PAGA' | 'PENDENTE'; timestamp: number }>>(new Map());
 
   const registerDeletedIds = useCallback((ids: string[]) => {
     ids.forEach((id) => {
@@ -1000,6 +1003,14 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
               const mergedPaymentMethod = isPix ? 'PIX' : isBoleto ? 'BOLETO' : (override.paymentMethod || base.paymentMethod);
               const isCard = mergedPaymentMethod === 'CARTAO_CREDITO';
 
+              const recentStatus = recentStatusUpdatesRef.current.get(pgExp.id);
+              let finalStatus = override.status || base.status;
+              if (recentStatus && (Date.now() - recentStatus.timestamp < 15 * 60 * 1000)) {
+                finalStatus = recentStatus.status;
+              } else if (existing?.status === 'PAGA' && override.status === 'PENDENTE' && useLocal) {
+                finalStatus = 'PAGA';
+              }
+
               // Merge seguro e não destrutivo: dados preexistentes nunca são apagados
               const merged: Expense = {
                 ...base,
@@ -1008,7 +1019,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
                 amount: override.amount || base.amount,
                 date: override.date || base.date,
                 referenceMonth: override.referenceMonth || base.referenceMonth,
-                status: override.status || base.status,
+                status: finalStatus,
                 categoryId: override.categoryId || base.categoryId,
                 categoryName: override.categoryName || base.categoryName,
                 paymentMethod: mergedPaymentMethod,
@@ -1898,10 +1909,27 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       prev.map((e) => (e.id === id ? { ...e, ...data, updatedAt: nowIso } : e))
     );
 
-    await updateDoc(
-      doc(db, 'expenses', id),
-      sanitizeData({ ...data, updatedAt: nowIso, serverUpdatedAt: serverTimestamp() })
-    );
+    if (data.status) {
+      recentStatusUpdatesRef.current.set(id, { status: data.status, timestamp: Date.now() });
+    }
+
+    if (currentUser?.uid && !isDemoUser) {
+      setDoc(
+        doc(db, 'expenses', id),
+        sanitizeData({ ...data, updatedAt: nowIso, serverUpdatedAt: serverTimestamp() }),
+        { merge: true }
+      ).catch((err) => {
+        console.warn('Aviso ao salvar no Firestore:', err);
+      });
+    }
+
+    // Atualização direta e imediata no PostgreSQL para garantia total de persistência
+    try {
+      const token = await getSafeUserToken(currentUser);
+      await updateExpenseInPostgres(id, { ...data, updatedAt: nowIso }, token);
+    } catch (pgErr) {
+      console.warn('Aviso ao atualizar despesa no PostgreSQL:', pgErr);
+    }
   };
 
   const deleteExpense = async (
@@ -2104,22 +2132,38 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       prev.map((e) => (idSet.has(e.id) ? { ...e, status: targetStatus, updatedAt: nowIso } : e))
     );
 
+    expenseIds.forEach((eid) => {
+      recentStatusUpdatesRef.current.set(eid, { status: targetStatus, timestamp: Date.now() });
+    });
+
     if (!isDemoUser) {
       try {
         for (let i = 0; i < expenseIds.length; i += 300) {
           const chunk = expenseIds.slice(i, i + 300);
           const batch = writeBatch(db);
           for (const expId of chunk) {
-            batch.update(doc(db, 'expenses', expId), sanitizeData({
-              status: targetStatus,
-              updatedAt: nowIso,
-              serverUpdatedAt: serverTimestamp(),
-            }));
+            batch.set(
+              doc(db, 'expenses', expId),
+              sanitizeData({
+                status: targetStatus,
+                updatedAt: nowIso,
+                serverUpdatedAt: serverTimestamp(),
+              }),
+              { merge: true }
+            );
           }
           await batch.commit();
         }
       } catch (err) {
-        console.error('Erro ao atualizar status das despesas em lote:', err);
+        console.error('Erro ao atualizar status das despesas em lote no Firestore:', err);
+      }
+
+      // Atualização imediata em lote no PostgreSQL
+      try {
+        const token = await getSafeUserToken(currentUser);
+        await updateMultipleExpensesStatusInPostgres(expenseIds, targetStatus, token);
+      } catch (pgErr) {
+        console.warn('Aviso ao atualizar status em lote no PostgreSQL:', pgErr);
       }
     }
   };

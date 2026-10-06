@@ -1829,4 +1829,43 @@ export async function deleteAbatimentoRecord(userId: string, id: string) {
   return { success: true, id };
 }
 
+export async function updateExpenseInPostgresRepo(id: string, data: Partial<any>) {
+  const updateData: any = { updatedAt: new Date() };
+  if (data.status !== undefined) updateData.status = String(data.status);
+  if (data.description !== undefined) updateData.description = String(data.description);
+  if (data.amount !== undefined) updateData.amount = Number(data.amount);
+  if (data.date !== undefined) updateData.date = String(data.date);
+  if (data.referenceMonth !== undefined) updateData.referenceMonth = String(data.referenceMonth);
+  if (data.categoryId !== undefined) updateData.categoryId = String(data.categoryId);
+  if (data.categoryName !== undefined) updateData.categoryName = String(data.categoryName);
+  if (data.paymentMethod !== undefined) updateData.paymentMethod = String(data.paymentMethod);
+  if (data.paymentMethodId !== undefined) updateData.paymentMethodId = data.paymentMethodId ? String(data.paymentMethodId) : null;
+  if (data.cardId !== undefined || data.creditCardId !== undefined) {
+    updateData.creditCardId = (data.creditCardId || data.cardId) ? String(data.creditCardId || data.cardId) : null;
+  }
+  if (data.cardName !== undefined || data.creditCardName !== undefined) {
+    updateData.creditCardName = (data.creditCardName || data.cardName) ? String(data.creditCardName || data.cardName) : null;
+  }
+  if (data.notes !== undefined) updateData.notes = data.notes ? String(data.notes) : null;
+
+  const result = await db
+    .update(expenses)
+    .set(updateData)
+    .where(eq(expenses.id, id))
+    .returning();
+
+  return result[0];
+}
+
+export async function updateMultipleExpensesStatusInPostgresRepo(ids: string[], status: 'PAGA' | 'PENDENTE') {
+  if (!ids || ids.length === 0) return [];
+  const result = await db
+    .update(expenses)
+    .set({ status, updatedAt: new Date() })
+    .where(inArray(expenses.id, ids))
+    .returning();
+
+  return result;
+}
+
 

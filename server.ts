@@ -23,6 +23,8 @@ import {
   createGestaoMassoterapiaDemoSession,
   upsertAbatimento,
   deleteAbatimentoRecord,
+  updateExpenseInPostgresRepo,
+  updateMultipleExpensesStatusInPostgresRepo,
 } from './src/db/repositories';
 import { db } from './src/db/index';
 import { systemIntegrationsLog } from './src/db/schema';
@@ -281,6 +283,46 @@ async function startServer() {
     } catch (error: any) {
       console.error('Erro ao deletar registro no PostgreSQL:', error);
       res.status(500).json({ error: 'Falha ao deletar registro no banco', details: error.message });
+    }
+  });
+
+  // Endpoints Dedicados para Atualização Direta de Despesas no PostgreSQL
+  app.patch('/api/expenses/:id', optionalAuth, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const updated = await updateExpenseInPostgresRepo(id, req.body);
+      broadcastSyncEvent('data_refreshed', { action: 'update_expense', id, status: req.body?.status, timestamp: Date.now() });
+      res.json({ success: true, data: updated });
+    } catch (error: any) {
+      console.error('Erro ao atualizar despesa no PostgreSQL:', error);
+      res.status(500).json({ error: 'Falha ao atualizar despesa', details: error.message });
+    }
+  });
+
+  app.put('/api/expenses/:id', optionalAuth, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const updated = await updateExpenseInPostgresRepo(id, req.body);
+      broadcastSyncEvent('data_refreshed', { action: 'update_expense', id, status: req.body?.status, timestamp: Date.now() });
+      res.json({ success: true, data: updated });
+    } catch (error: any) {
+      console.error('Erro ao atualizar despesa no PostgreSQL:', error);
+      res.status(500).json({ error: 'Falha ao atualizar despesa', details: error.message });
+    }
+  });
+
+  app.post('/api/expenses/bulk-status', optionalAuth, async (req: AuthRequest, res) => {
+    try {
+      const { ids, status } = req.body;
+      if (!Array.isArray(ids) || !status) {
+        return res.status(400).json({ error: 'IDs e status são obrigatórios' });
+      }
+      const updated = await updateMultipleExpensesStatusInPostgresRepo(ids, status);
+      broadcastSyncEvent('data_refreshed', { action: 'bulk_status_expense', ids, status, timestamp: Date.now() });
+      res.json({ success: true, count: updated.length, data: updated });
+    } catch (error: any) {
+      console.error('Erro ao atualizar status em lote no PostgreSQL:', error);
+      res.status(500).json({ error: 'Falha ao atualizar status em lote', details: error.message });
     }
   });
 
