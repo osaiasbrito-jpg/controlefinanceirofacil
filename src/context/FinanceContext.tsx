@@ -548,7 +548,16 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
             referenceMonth: refMonth,
           });
         });
-        setExpenses(list);
+        setExpenses((prev) => {
+          const map = new Map<string, Expense>();
+          prev.forEach((e) => {
+            if (!deletedRecordIdsRef.current.has(e.id)) map.set(e.id, e);
+          });
+          list.forEach((e) => {
+            if (!deletedRecordIdsRef.current.has(e.id)) map.set(e.id, e);
+          });
+          return Array.from(map.values());
+        });
       },
       (err) => handleFirestoreError(err, OperationType.LIST, 'expenses')
     );
@@ -586,7 +595,16 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       (snapshot) => {
         const list: InstallmentPurchase[] = [];
         snapshot.forEach((docSnap) => list.push({ id: docSnap.id, ...(docSnap.data() as any) }));
-        setInstallmentPurchases(list);
+        setInstallmentPurchases((prev) => {
+          const map = new Map<string, InstallmentPurchase>();
+          prev.forEach((p) => {
+            if (!deletedRecordIdsRef.current.has(p.id)) map.set(p.id, p);
+          });
+          list.forEach((p) => {
+            if (!deletedRecordIdsRef.current.has(p.id)) map.set(p.id, p);
+          });
+          return Array.from(map.values());
+        });
       },
       (err) => handleFirestoreError(err, OperationType.LIST, 'installmentPurchases')
     );
@@ -912,6 +930,9 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
             if (!map.has(pgInst.id)) {
               map.set(pgInst.id, formatted);
               hasNew = true;
+              if (currentUser?.uid && !isDemoUser) {
+                setDoc(doc(db, 'installmentPurchases', formatted.id), sanitizeData(formatted), { merge: true }).catch(() => {});
+              }
             }
           });
           return hasNew ? Array.from(map.values()) : prev;
@@ -962,6 +983,9 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
             if (!existing) {
               map.set(pgExp.id, formatted);
               hasChange = true;
+              if (currentUser?.uid && !isDemoUser) {
+                setDoc(doc(db, 'expenses', formatted.id), sanitizeData(formatted), { merge: true }).catch(() => {});
+              }
             } else {
               const existingTime = new Date(existing.updatedAt || 0).getTime();
               const pgTime = new Date(pgExp.updatedAt || 0).getTime();
