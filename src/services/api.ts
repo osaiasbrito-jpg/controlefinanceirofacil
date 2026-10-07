@@ -159,7 +159,7 @@ export async function deleteEntityFromPostgres(
   id: string,
   userId: string,
   idToken?: string,
-  options?: { deleteFuture?: boolean; deleteAll?: boolean }
+  options?: { deleteFuture?: boolean; deleteAll?: boolean; email?: string }
 ) {
   try {
     const headers: Record<string, string> = {};
@@ -169,6 +169,12 @@ export async function deleteEntityFromPostgres(
 
     const params = new URLSearchParams();
     params.set('userId', userId);
+    if (userId.includes('@')) {
+      params.set('email', userId);
+    }
+    if (options?.email) {
+      params.set('email', options.email);
+    }
     if (options?.deleteFuture) params.set('deleteFuture', 'true');
     if (options?.deleteAll) params.set('deleteAll', 'true');
 

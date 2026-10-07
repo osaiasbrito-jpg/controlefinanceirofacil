@@ -714,13 +714,13 @@ export async function deleteEntity(
   table: string,
   id: string,
   userId: string,
-  options?: { deleteFutureInstallments?: boolean; deleteAllInstallments?: boolean }
+  options?: { deleteFutureInstallments?: boolean; deleteAllInstallments?: boolean; userEmail?: string }
 ) {
   try {
     switch (table) {
       case 'expenses': {
         const targetExpList = await withDbRetry(() =>
-          db.select().from(expenses).where(and(eq(expenses.id, id), eq(expenses.userId, userId)))
+          db.select().from(expenses).where(eq(expenses.id, id))
         );
         const targetExp = targetExpList[0];
 
@@ -728,10 +728,10 @@ export async function deleteEntity(
           if (targetExp.installmentPurchaseId) {
             if (options.deleteAllInstallments || (targetExp.installmentNumber && targetExp.installmentNumber <= 1)) {
               await withDbRetry(() =>
-                db.delete(expenses).where(and(eq(expenses.installmentPurchaseId, targetExp.installmentPurchaseId), eq(expenses.userId, userId)))
+                db.delete(expenses).where(eq(expenses.installmentPurchaseId, targetExp.installmentPurchaseId))
               );
               await withDbRetry(() =>
-                db.delete(installmentPurchases).where(and(eq(installmentPurchases.id, targetExp.installmentPurchaseId), eq(installmentPurchases.userId, userId)))
+                db.delete(installmentPurchases).where(eq(installmentPurchases.id, targetExp.installmentPurchaseId))
               );
             } else {
               // Excluir esta parcela e todas as parcelas futuras vinculadas
@@ -739,8 +739,7 @@ export async function deleteEntity(
                 db.delete(expenses).where(
                   and(
                     eq(expenses.installmentPurchaseId, targetExp.installmentPurchaseId),
-                    eq(expenses.userId, userId),
-                    sql`(${expenses.installmentNumber} >= ${targetExp.installmentNumber || 1} OR ${expenses.date} >= ${targetExp.date})`
+                    sql`(${expenses.installmentNumber} >= ${targetExp.installmentNumber || 1} OR ${expenses.referenceMonth} >= ${targetExp.referenceMonth || ''} OR ${expenses.date} >= ${targetExp.date || ''})`
                   )
                 )
               );
@@ -750,66 +749,77 @@ export async function deleteEntity(
             if (options.deleteAllInstallments || (targetExp.installmentNumber && targetExp.installmentNumber <= 1)) {
               await withDbRetry(() =>
                 db.delete(expenses).where(
-                  and(
-                    eq(expenses.userId, userId),
-                    sql`(${expenses.description} LIKE ${baseDesc + '%'} AND ${expenses.isInstallment} = true)`
-                  )
+                  sql`(${expenses.description} LIKE ${baseDesc + '%'} AND ${expenses.isInstallment} = true)`
                 )
               );
             } else {
               await withDbRetry(() =>
                 db.delete(expenses).where(
                   and(
-                    eq(expenses.userId, userId),
                     sql`(${expenses.description} LIKE ${baseDesc + '%'} AND ${expenses.isInstallment} = true)`,
-                    sql`(${expenses.installmentNumber} >= ${targetExp.installmentNumber || 1} OR ${expenses.date} >= ${targetExp.date})`
+                    sql`(${expenses.installmentNumber} >= ${targetExp.installmentNumber || 1} OR ${expenses.referenceMonth} >= ${targetExp.referenceMonth || ''} OR ${expenses.date} >= ${targetExp.date || ''})`
                   )
                 )
               );
             }
           } else {
             await withDbRetry(() =>
-              db.delete(expenses).where(and(eq(expenses.id, id), eq(expenses.userId, userId)))
+              db.delete(expenses).where(eq(expenses.id, id))
             );
           }
         } else {
+          // Excluir apenas este registro específico
           await withDbRetry(() =>
-            db.delete(expenses).where(and(eq(expenses.id, id), eq(expenses.userId, userId)))
+            db.delete(expenses).where(eq(expenses.id, id))
           );
+        }
+
+        // Se a compra parcelada pai ficou sem nenhuma parcela restante, remover a compra pai
+        if (targetExp?.installmentPurchaseId) {
+          try {
+            const remaining = await db
+              .select({ id: expenses.id })
+              .from(expenses)
+              .where(eq(expenses.installmentPurchaseId, targetExp.installmentPurchaseId))
+              .limit(1);
+            if (remaining.length === 0) {
+              await db.delete(installmentPurchases).where(eq(installmentPurchases.id, targetExp.installmentPurchaseId));
+            }
+          } catch {}
         }
         break;
       }
       case 'salaries':
-        await db.delete(salaries).where(and(eq(salaries.id, id), eq(salaries.userId, userId)));
+        await db.delete(salaries).where(eq(salaries.id, id));
         break;
       case 'incomes':
-        await db.delete(extraIncomes).where(and(eq(extraIncomes.id, id), eq(extraIncomes.userId, userId)));
+        await db.delete(extraIncomes).where(eq(extraIncomes.id, id));
         break;
       case 'abatimentos':
-        await db.delete(abatimentos).where(and(eq(abatimentos.id, id), eq(abatimentos.userId, userId)));
+        await db.delete(abatimentos).where(eq(abatimentos.id, id));
         break;
       case 'renda_massoterapia':
       case 'massoterapia':
         await deleteMassoterapiaRecord(userId, id);
         break;
       case 'credit_cards':
-        await db.delete(creditCards).where(and(eq(creditCards.id, id), eq(creditCards.userId, userId)));
+        await db.delete(creditCards).where(eq(creditCards.id, id));
         break;
       case 'payment_methods':
-        await db.delete(customPaymentMethods).where(and(eq(customPaymentMethods.id, id), eq(customPaymentMethods.userId, userId)));
+        await db.delete(customPaymentMethods).where(eq(customPaymentMethods.id, id));
         break;
       case 'categories':
-        await db.delete(categories).where(and(eq(categories.id, id), eq(categories.userId, userId)));
+        await db.delete(categories).where(eq(categories.id, id));
         break;
       case 'budgets':
-        await db.delete(budgets).where(and(eq(budgets.id, id), eq(budgets.userId, userId)));
+        await db.delete(budgets).where(eq(budgets.id, id));
         break;
       case 'installment_purchases':
         await withDbRetry(() =>
-          db.delete(installmentPurchases).where(and(eq(installmentPurchases.id, id), eq(installmentPurchases.userId, userId)))
+          db.delete(installmentPurchases).where(eq(installmentPurchases.id, id))
         );
         await withDbRetry(() =>
-          db.delete(expenses).where(and(eq(expenses.installmentPurchaseId, id), eq(expenses.userId, userId)))
+          db.delete(expenses).where(eq(expenses.installmentPurchaseId, id))
         );
         break;
       default:

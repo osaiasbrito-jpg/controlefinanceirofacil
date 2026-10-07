@@ -318,8 +318,25 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [filters, setFilters] = useState<ExpenseFilters>(defaultFilters);
   const isRefreshingFromPgRef = useRef<boolean>(false);
   const isSyncingToPgRef = useRef<boolean>(false);
-  const deletedRecordIdsRef = useRef<Set<string>>(new Set<string>());
+  const deletedRecordIdsRef = useRef<Set<string>>((() => {
+    try {
+      const saved = localStorage.getItem('meu_controle_deleted_record_ids');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return new Set<string>(parsed);
+      }
+    } catch {}
+    return new Set<string>();
+  })());
   const recentStatusUpdatesRef = useRef<Map<string, { status: 'PAGA' | 'PENDENTE'; timestamp: number }>>(new Map());
+
+  const getEffectiveDatabaseUserId = useCallback((): string => {
+    if (!currentUser) return 'osaiasbrito@gmail.com';
+    const isOsaias =
+      currentUser.email?.toLowerCase().includes('osaias') ||
+      currentUser.uid?.toLowerCase().includes('osaias');
+    return isOsaias ? 'osaiasbrito@gmail.com' : (currentUser.uid || 'osaiasbrito@gmail.com');
+  }, [currentUser]);
 
   const registerDeletedIds = useCallback((ids: string[]) => {
     ids.forEach((id) => {
@@ -347,6 +364,12 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       deletedRecordIdsRef.current.add(`extra_${stripped}`);
       deletedRecordIdsRef.current.add(`sessao_${stripped}`);
     });
+    try {
+      localStorage.setItem(
+        'meu_controle_deleted_record_ids',
+        JSON.stringify(Array.from(deletedRecordIdsRef.current).slice(-2000))
+      );
+    } catch {}
   }, []);
 
   // Month navigation
@@ -1352,8 +1375,9 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     setSalaries((prev) => prev.filter((s) => s.id !== id && !deletedRecordIdsRef.current.has(s.id)));
     if (isDemoUser || !currentUser) return;
     const token = await getSafeUserToken(currentUser);
+    const effectiveUserId = getEffectiveDatabaseUserId();
     try {
-      await deleteEntityFromPostgres('salaries', id, currentUser.uid, token);
+      await deleteEntityFromPostgres('salaries', id, effectiveUserId, token);
     } catch {}
     try {
       await deleteDoc(doc(db, 'salaries', id));
@@ -1457,8 +1481,9 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     setIncomes((prev) => prev.filter((s) => s.id !== id && !deletedRecordIdsRef.current.has(s.id)));
     if (isDemoUser || !currentUser) return;
     const token = await getSafeUserToken(currentUser);
+    const effectiveUserId = getEffectiveDatabaseUserId();
     try {
-      await deleteEntityFromPostgres('incomes', id, currentUser.uid, token);
+      await deleteEntityFromPostgres('incomes', id, effectiveUserId, token);
     } catch {}
     try {
       await deleteDoc(doc(db, 'incomes', id));
@@ -1726,7 +1751,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (isDemoUser || !currentUser) return;
 
     const token = await getSafeUserToken(currentUser);
-    const targetUserId = currentUser.uid || 'osaiasbrito@gmail.com';
+    const targetUserId = getEffectiveDatabaseUserId();
 
     try {
       await deleteAbatimentoFromPostgres(id, targetUserId, token);
@@ -1984,19 +2009,20 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (isDemoUser || !currentUser) return;
 
     const token = await getSafeUserToken(currentUser);
+    const effectiveUserId = getEffectiveDatabaseUserId();
 
     // 1. Delete from PostgreSQL
     try {
       if (purchaseIdToDelete) {
-        await deleteEntityFromPostgres('installment_purchases', purchaseIdToDelete, currentUser.uid, token);
+        await deleteEntityFromPostgres('installment_purchases', purchaseIdToDelete, effectiveUserId, token);
       }
-      await deleteEntityFromPostgres('expenses', id, currentUser.uid, token, {
+      await deleteEntityFromPostgres('expenses', id, effectiveUserId, token, {
         deleteFuture: options?.deleteFutureInstallments,
         deleteAll: options?.deleteAllInstallments,
       });
       for (const extraId of allIds) {
         if (extraId !== id) {
-          await deleteEntityFromPostgres('expenses', extraId, currentUser.uid, token);
+          await deleteEntityFromPostgres('expenses', extraId, effectiveUserId, token);
         }
       }
     } catch (pgErr) {
@@ -2067,12 +2093,13 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     if (!isDemoUser && currentUser) {
       const token = await getSafeUserToken(currentUser);
+      const effectiveUserId = getEffectiveDatabaseUserId();
       try {
         for (const pId of allPurchaseIdsToDelete) {
-          await deleteEntityFromPostgres('installment_purchases', pId, currentUser.uid, token);
+          await deleteEntityFromPostgres('installment_purchases', pId, effectiveUserId, token);
         }
         for (const eId of allExpenseIdsToDelete) {
-          await deleteEntityFromPostgres('expenses', eId, currentUser.uid, token);
+          await deleteEntityFromPostgres('expenses', eId, effectiveUserId, token);
         }
       } catch (err) {
         console.warn('Aviso ao excluir lote do PostgreSQL:', err);
@@ -2607,12 +2634,13 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (isDemoUser || !currentUser) return;
 
     const token = await getSafeUserToken(currentUser);
+    const effectiveUserId = getEffectiveDatabaseUserId();
 
     // 1. Delete from PostgreSQL (this also cascade-deletes all linked expenses in PostgreSQL)
     try {
-      await deleteEntityFromPostgres('installment_purchases', purchaseId, currentUser.uid, token);
+      await deleteEntityFromPostgres('installment_purchases', purchaseId, effectiveUserId, token);
       for (const expId of docIds) {
-        await deleteEntityFromPostgres('expenses', expId, currentUser.uid, token);
+        await deleteEntityFromPostgres('expenses', expId, effectiveUserId, token);
       }
     } catch (pgErr) {
       console.warn('Aviso ao excluir parcelamento do PostgreSQL:', pgErr);

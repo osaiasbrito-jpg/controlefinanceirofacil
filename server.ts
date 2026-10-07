@@ -263,22 +263,29 @@ async function startServer() {
   // Delete Entity from PostgreSQL
   app.delete('/api/entity/:table/:id', optionalAuth, async (req: AuthRequest, res) => {
     try {
-      const userId = req.user?.uid || (req.query.userId as string) || (req.body?.userId as string);
+      const userEmail = req.user?.email || (req.query.email as string) || (req.body?.email as string);
+      const rawUserId = (req.query.userId as string) || req.user?.uid || (req.body?.userId as string);
+      const isOsaias =
+        userEmail?.toLowerCase().includes('osaias') ||
+        rawUserId?.toLowerCase().includes('osaias') ||
+        req.user?.uid?.toLowerCase().includes('osaias');
+      const effectiveUserId = isOsaias ? 'osaiasbrito@gmail.com' : (rawUserId || userEmail || 'osaiasbrito@gmail.com');
       const { table, id } = req.params;
       const deleteFuture = req.query.deleteFuture === 'true' || req.body?.deleteFuture === true;
       const deleteAll = req.query.deleteAll === 'true' || req.body?.deleteAll === true;
 
-      if (!userId || !id || !table) {
+      if (!id || !table) {
         return res.status(400).json({ error: 'Parâmetros incompletos para remoção' });
       }
 
-      const result = await deleteEntity(table, id, userId, {
+      const result = await deleteEntity(table, id, effectiveUserId, {
         deleteFutureInstallments: deleteFuture,
         deleteAllInstallments: deleteAll,
+        userEmail,
       });
-      if (table === 'renda_massoterapia' || table === 'massoterapia') {
-        broadcastSyncEvent('data_refreshed', { action: 'delete', table, id, timestamp: Date.now() });
-      }
+
+      broadcastSyncEvent('data_refreshed', { action: 'delete', table, id, timestamp: Date.now() });
+
       res.json(result);
     } catch (error: any) {
       console.error('Erro ao deletar registro no PostgreSQL:', error);
@@ -897,7 +904,13 @@ async function startServer() {
 
   app.delete('/api/abatimentos/:id', optionalAuth, async (req: AuthRequest, res) => {
     try {
-      const userId = req.user?.uid || (req.query.userId as string) || req.user?.email || 'osaiasbrito@gmail.com';
+      const userEmail = req.user?.email || (req.query.email as string);
+      const rawUserId = (req.query.userId as string) || req.user?.uid;
+      const isOsaias =
+        userEmail?.toLowerCase().includes('osaias') ||
+        rawUserId?.toLowerCase().includes('osaias') ||
+        req.user?.uid?.toLowerCase().includes('osaias');
+      const userId = isOsaias ? 'osaiasbrito@gmail.com' : (rawUserId || userEmail || 'osaiasbrito@gmail.com');
       const { id } = req.params;
 
       const result = await deleteAbatimentoRecord(userId, id);
