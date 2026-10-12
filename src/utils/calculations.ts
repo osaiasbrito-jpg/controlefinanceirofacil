@@ -1,7 +1,6 @@
 import {
   Salary,
   ExtraIncome,
-  RendaMassoterapia,
   Expense,
   CreditCard,
   Category,
@@ -183,19 +182,6 @@ export const getEffectiveIncomesForMonth = (
 };
 
 /**
- * Retorna os lançamentos de renda de massoterapia do mês de referência
- */
-export const getEffectiveMassoterapiaForMonth = (
-  month: string,
-  massoterapiaIncomes: RendaMassoterapia[] = []
-): RendaMassoterapia[] => {
-  return massoterapiaIncomes.filter((m) => {
-    const itemMonth = m.referenceMonth || (m.dataLancamento ? m.dataLancamento.substring(0, 7) : '');
-    return itemMonth === month;
-  });
-};
-
-/**
  * Retorna os abatimentos e pagamentos adiantados do mês de referência
  */
 export const getEffectiveAbatimentosForMonth = (
@@ -273,7 +259,6 @@ export const calculateMonthSummary = (
   incomes: ExtraIncome[],
   expenses: Expense[],
   settings?: UserSettings | null,
-  massoterapiaIncomes: RendaMassoterapia[] = [],
   abatimentos: Abatimento[] = []
 ): MonthFinancialSummary => {
   // 1. Effective salaries for target referenceMonth (including standardized default if applicable)
@@ -281,9 +266,6 @@ export const calculateMonthSummary = (
 
   // 2. Effective extra incomes (recurring standard incomes + month punctual incomes)
   const monthIncomes = getEffectiveIncomesForMonth(month, incomes);
-
-  // 2.1. Effective massoterapia incomes for target referenceMonth
-  const monthMassoterapia = getEffectiveMassoterapiaForMonth(month, massoterapiaIncomes);
 
   // 2.2. Effective abatimentos/adiantamentos for target referenceMonth
   const monthAbatimentos = getEffectiveAbatimentosForMonth(month, abatimentos);
@@ -310,12 +292,9 @@ export const calculateMonthSummary = (
     .reduce((acc, curr) => acc + (curr.amount || 0), 0);
   const pendingExtraIncome = totalExtraIncome - receivedExtraIncome;
 
-  // Massoterapia calculations
-  const totalMassoterapia = monthMassoterapia.reduce((acc, curr) => acc + (curr.valor || 0), 0);
-
-  // Total Revenues: Salário Fixo + Renda Massoterapia + Renda Extra Avulsa
-  const totalRevenue = totalSalary + totalMassoterapia + totalExtraIncome;
-  const receivedRevenue = receivedSalary + totalMassoterapia + receivedExtraIncome;
+  // Total Revenues: Salário Fixo + Renda Extra Avulsa
+  const totalRevenue = totalSalary + totalExtraIncome;
+  const receivedRevenue = receivedSalary + receivedExtraIncome;
   const pendingRevenue = pendingSalary + pendingExtraIncome;
 
   // Expenses calculations
@@ -359,7 +338,6 @@ export const calculateMonthSummary = (
     totalExtraIncome,
     receivedExtraIncome,
     pendingExtraIncome,
-    totalMassoterapia,
     totalRevenue,
     receivedRevenue,
     pendingRevenue,
@@ -466,7 +444,14 @@ export const generateInstallmentsPlan = (
     const projectionMonths = 6;
     const monthlyVal = totalAmount; // For indefinite, totalAmount entered is the monthly amount
 
-    const effectiveMethod: PaymentMethod = isPixExpense({ cardName, cardId, categoryName, categoryId })
+    const cardUpper = (cardName || '').trim().toUpperCase();
+    const cardIdLower = (cardId || '').toLowerCase().trim();
+    const hasRealCard = (cardUpper && !['PIX', 'BOLETO', 'OUTRO', 'OUTROS'].includes(cardUpper)) ||
+                        (cardIdLower && cardIdLower !== 'other-method' && !cardIdLower.includes('pix') && !cardIdLower.includes('boleto'));
+
+    const effectiveMethod: PaymentMethod = hasRealCard
+      ? 'CARTAO_CREDITO'
+      : isPixExpense({ cardName, cardId, categoryName, categoryId })
       ? 'PIX'
       : isBoletoExpense({ cardName, cardId, categoryName, categoryId })
       ? 'BOLETO'
@@ -507,7 +492,14 @@ export const generateInstallmentsPlan = (
 
   // Standard fixed installments (e.g. 2x to 36x)
   const parts = splitInstallments(totalAmount, count);
-  const effectiveMethod: PaymentMethod = isPixExpense({ cardName, cardId, categoryName, categoryId })
+  const cardUpper = (cardName || '').trim().toUpperCase();
+  const cardIdLower = (cardId || '').toLowerCase().trim();
+  const hasRealCard = (cardUpper && !['PIX', 'BOLETO', 'OUTRO', 'OUTROS'].includes(cardUpper)) ||
+                      (cardIdLower && cardIdLower !== 'other-method' && !cardIdLower.includes('pix') && !cardIdLower.includes('boleto'));
+
+  const effectiveMethod: PaymentMethod = hasRealCard
+    ? 'CARTAO_CREDITO'
+    : isPixExpense({ cardName, cardId, categoryName, categoryId })
     ? 'PIX'
     : isBoletoExpense({ cardName, cardId, categoryName, categoryId })
     ? 'BOLETO'

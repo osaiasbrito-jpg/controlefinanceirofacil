@@ -55,7 +55,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'receitas', label: 'Receitas', icon: TrendingUp },
     { id: 'salario', label: 'Salário', icon: Briefcase },
     { id: 'renda-extra', label: 'Renda Extra', icon: PlusCircle },
-    { id: 'massoterapia', label: 'Renda Massoterapia', icon: Sparkles },
     { id: 'despesas', label: 'Despesas', icon: Receipt },
     { id: 'cartoes', label: 'Cartões e Outros Tipos', icon: CardIcon },
     { id: 'parcelamentos', label: 'Parcelamentos', icon: Layers },

@@ -137,27 +137,6 @@ export interface ExtraIncome {
   updatedAt: string;
 }
 
-export interface RendaMassoterapia {
-  id: string;
-  userId: string;
-  dataLancamento: string; // YYYY-MM-DD
-  valor: number;
-  observacao?: string;
-  referenceMonth?: string; // YYYY-MM
-  clientePaciente?: string;
-  clientName?: string;
-  procedimento?: string;
-  tecnicas?: string;
-  tipo?: string;
-  tipoSessao?: string;
-  status?: string;
-  profissional?: string;
-  origem?: string;
-  dadosExtras?: any;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
 export interface Expense {
   id: string;
   userId: string;
@@ -340,8 +319,7 @@ export interface MonthFinancialSummary {
   totalExtraIncome: number;
   receivedExtraIncome: number;
   pendingExtraIncome: number;
-  totalMassoterapia: number; // Renda de Massoterapia no mês
-  totalRevenue: number; // Salário Fixo + Renda Massoterapia + Renda Extra Avulsa
+  totalRevenue: number; // Salário Fixo + Renda Extra Avulsa
   receivedRevenue: number;
   pendingRevenue: number;
   totalExpenses: number; // Total líquido a pagar (subtraindo abatimentos)
@@ -390,7 +368,6 @@ export interface BackupData {
   userEmail?: string;
   salaries: Salary[];
   incomes: ExtraIncome[];
-  massoterapiaIncomes?: RendaMassoterapia[];
   expenses: Expense[];
   creditCards: CreditCard[];
   installmentPurchases: InstallmentPurchase[];
@@ -404,7 +381,6 @@ export type ActiveTab =
   | 'receitas'
   | 'salario'
   | 'renda-extra'
-  | 'massoterapia'
   | 'despesas'
   | 'orcamento'
   | 'cartoes'

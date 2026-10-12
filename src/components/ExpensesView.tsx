@@ -252,23 +252,21 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
 
     // Consolidate expenses into cards and non-card payment methods
     monthExpenses.forEach((exp) => {
-      const isPixOrBoleto =
-        isPixExpense(exp, categories) ||
-        isBoletoExpense(exp, categories) ||
-        isDebitExpense(exp, categories) ||
-        isCashExpense(exp, categories) ||
-        (exp.cardName || '').trim().toUpperCase() === 'PIX' ||
-        (exp.cardName || '').trim().toUpperCase() === 'BOLETO' ||
-        exp.cardId === 'other-method';
+      const parent = exp.installmentPurchaseId ? installmentPurchases.find((p) => p.id === exp.installmentPurchaseId) : undefined;
+      const effectiveCardId = exp.cardId || parent?.cardId;
+      const effectiveCardName = exp.cardName || parent?.cardName;
+      const canonical = getCanonicalCardInfo(effectiveCardId, effectiveCardName, creditCards);
 
+      const rawCardUpper = (effectiveCardName || '').trim().toUpperCase();
+      const hasRealCard = canonical.isRegistered || (rawCardUpper && !['PIX', 'BOLETO', 'OUTRO', 'OUTROS'].includes(rawCardUpper));
       const effectiveMethod = resolveEffectivePaymentMethod(exp, categories, creditCards);
-      const isCard = effectiveMethod === 'CARTAO_CREDITO' && !isPixOrBoleto;
+
+      const isExplicitNonCard = exp.paymentMethod === 'PIX' || exp.paymentMethod === 'BOLETO' || exp.paymentMethod === 'CARTAO_DEBITO' || exp.paymentMethod === 'DINHEIRO';
+      const isCard = hasRealCard
+        ? (exp.paymentMethod !== 'BOLETO' && exp.paymentMethod !== 'PIX' && rawCardUpper !== 'PIX' && rawCardUpper !== 'BOLETO')
+        : (!isExplicitNonCard && effectiveMethod === 'CARTAO_CREDITO' && exp.cardId !== 'other-method' && rawCardUpper !== 'PIX' && rawCardUpper !== 'BOLETO');
 
       if (isCard) {
-        const parent = exp.installmentPurchaseId ? installmentPurchases.find((p) => p.id === exp.installmentPurchaseId) : undefined;
-        const effectiveCardId = exp.cardId || parent?.cardId;
-        const effectiveCardName = exp.cardName || parent?.cardName;
-        const canonical = getCanonicalCardInfo(effectiveCardId, effectiveCardName, creditCards);
         const groupKey = canonical.canonicalName || 'CARTÃO DE CRÉDITO';
         
         let existing = cardGroupMap.get(groupKey);
@@ -288,12 +286,12 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
         existing.total += exp.amount || 0;
       } else {
         // Non-card payment (Pix, Boleto, Débito, Dinheiro, etc.)
-        const method: PaymentMethod = isPixOrBoleto
-          ? isPixExpense(exp, categories) || (exp.cardName || '').trim().toUpperCase() === 'PIX'
-            ? 'PIX'
-            : isBoletoExpense(exp, categories) || (exp.cardName || '').trim().toUpperCase() === 'BOLETO'
-            ? 'BOLETO'
-            : effectiveMethod
+        const isPix = isPixExpense(exp, categories) || rawCardUpper === 'PIX';
+        const isBoleto = !isPix && (isBoletoExpense(exp, categories) || rawCardUpper === 'BOLETO');
+        const method: PaymentMethod = isPix
+          ? 'PIX'
+          : isBoleto
+          ? 'BOLETO'
           : effectiveMethod;
 
         const methodKey = (method === 'PIX' || method === 'BOLETO' || method === 'CARTAO_DEBITO' || method === 'DINHEIRO')
@@ -1790,11 +1788,20 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
                         {/* Payment Method / Card & Installment Breakdown */}
                         <td className="text-slate-600 font-medium whitespace-nowrap py-2.5">
                           {(() => {
-                            const isPix = isPixExpense(expense, categories);
-                            const isBoleto = !isPix && isBoletoExpense(expense, categories);
-                            const isDebit = !isPix && !isBoleto && isDebitExpense(expense, categories);
-                            const isCash = !isPix && !isBoleto && !isDebit && isCashExpense(expense, categories);
-                            const isCreditCard = !isPix && !isBoleto && !isDebit && !isCash && expense.paymentMethod === 'CARTAO_CREDITO';
+                            const rawCardUpper = (expense.cardName || '').trim().toUpperCase();
+                            const isRealCreditCard =
+                              (expense.paymentMethod === 'CARTAO_CREDITO' || !!card) &&
+                              rawCardUpper !== 'PIX' &&
+                              rawCardUpper !== 'BOLETO' &&
+                              expense.cardId !== 'other-method' &&
+                              expense.paymentMethod !== 'PIX' &&
+                              expense.paymentMethod !== 'BOLETO';
+
+                            const isPix = !isRealCreditCard && isPixExpense(expense, categories);
+                            const isBoleto = !isRealCreditCard && !isPix && isBoletoExpense(expense, categories);
+                            const isDebit = !isRealCreditCard && !isPix && !isBoleto && isDebitExpense(expense, categories);
+                            const isCash = !isRealCreditCard && !isPix && !isBoleto && !isDebit && isCashExpense(expense, categories);
+                            const isCreditCard = isRealCreditCard || (!isPix && !isBoleto && !isDebit && !isCash && expense.paymentMethod === 'CARTAO_CREDITO');
 
                             if (isCreditCard) {
                               return (

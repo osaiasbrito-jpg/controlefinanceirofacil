@@ -179,13 +179,13 @@ export function normalizePaymentMethod(value: any): 'PIX' | 'CARTAO_CREDITO' | '
   if (!value) return 'PIX';
   const str = String(value).toUpperCase().trim();
 
-  if (str.includes('CRÉDITO') || str.includes('CREDITO') || str.includes('CARTAO DE CREDITO') || str.includes('CARD') || str.includes('PARCELA')) {
+  if (str.includes('CRÉDITO') || str.includes('CREDITO') || str.includes('CARTAO DE CREDITO') || str.includes('CARD') || str.includes('PARCELA') || str.includes('FATURA')) {
     return 'CARTAO_CREDITO';
   }
   if (str.includes('DÉBITO') || str.includes('DEBITO')) {
     return 'CARTAO_DEBITO';
   }
-  if (str.includes('BOLETO') || str.includes('FATURA')) {
+  if (str.includes('BOLETO')) {
     return 'BOLETO';
   }
   if (str.includes('DINHEIRO') || str.includes('ESPECIE') || str.includes('CASH')) {
@@ -314,14 +314,18 @@ export function parseExcelWorkbook(
     const categoryName = String(rawCat || 'Outros').trim() || 'Outros';
     const catLower = categoryName.toLowerCase();
     let paymentMethod = normalizePaymentMethod(rawMethod || (rawCard ? 'CARTAO_CREDITO' : ''));
-    if (catLower === 'pix' || /\bpix\b/i.test(catLower)) {
-      paymentMethod = 'PIX';
-    } else if (catLower === 'boleto' || /\bboleto\b/i.test(catLower)) {
-      paymentMethod = 'BOLETO';
-    } else if (catLower.includes('debito') || catLower.includes('débito')) {
-      paymentMethod = 'CARTAO_DEBITO';
-    } else if (catLower.includes('dinheiro') || catLower.includes('especie') || catLower.includes('espécie')) {
-      paymentMethod = 'DINHEIRO';
+    if (!rawCard) {
+      if (catLower === 'pix' || /\bpix\b/i.test(catLower)) {
+        paymentMethod = 'PIX';
+      } else if (catLower === 'boleto' || /\bboleto\b/i.test(catLower)) {
+        paymentMethod = 'BOLETO';
+      } else if (catLower.includes('debito') || catLower.includes('débito')) {
+        paymentMethod = 'CARTAO_DEBITO';
+      } else if (catLower.includes('dinheiro') || catLower.includes('especie') || catLower.includes('espécie')) {
+        paymentMethod = 'DINHEIRO';
+      }
+    } else {
+      paymentMethod = 'CARTAO_CREDITO';
     }
     const cardName = paymentMethod === 'CARTAO_CREDITO' && rawCard ? String(rawCard).trim() : undefined;
     const notes = rawNotes ? String(rawNotes).trim() : undefined;

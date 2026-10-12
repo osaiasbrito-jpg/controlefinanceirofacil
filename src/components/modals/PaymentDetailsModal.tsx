@@ -74,6 +74,15 @@ export const PaymentDetailsModal: React.FC<PaymentDetailsModalProps> = ({
     }
 
     if (targetType === 'METHOD' && method) {
+      // Despesas com cartão de crédito real vinculado nunca devem ser exibidas dentro de Boletos ou Pix
+      const rawCard = (e.cardName || '').trim().toUpperCase();
+      const rawCardId = (e.cardId || '').toLowerCase().trim();
+      const hasRealCard = (rawCard && !['PIX', 'BOLETO', 'OUTRO', 'OUTROS'].includes(rawCard)) ||
+                          (rawCardId && rawCardId !== 'other-method' && !rawCardId.includes('pix') && !rawCardId.includes('boleto'));
+      if (hasRealCard && (method.type === 'BOLETO' || method.type === 'PIX') && e.paymentMethod !== method.type) {
+        return false;
+      }
+
       return (
         e.paymentMethodId === method.id ||
         (e.paymentMethod === method.type && (!e.paymentMethodId || e.paymentMethodId === method.id)) ||

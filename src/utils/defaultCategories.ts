@@ -17,9 +17,6 @@ export const DEFAULT_CATEGORIES: Omit<Category, 'id'>[] = [
   { userId: 'system', name: 'Assinaturas', icon: 'Tv', color: '#A855F7', isDefault: true },
   { userId: 'system', name: 'Impostos', icon: 'FileText', color: '#64748B', isDefault: true },
   { userId: 'system', name: 'Seguros', icon: 'ShieldCheck', color: '#0EA5E9', isDefault: true },
-  { userId: 'system', name: 'Cartão de Crédito', icon: 'CreditCard', color: '#4F46E5', isDefault: true },
-  { userId: 'system', name: 'Pix', icon: 'Send', color: '#059669', isDefault: true },
-  { userId: 'system', name: 'Boleto', icon: 'Barcode', color: '#78716C', isDefault: true },
   { userId: 'system', name: 'Outros', icon: 'MoreHorizontal', color: '#94A3B8', isDefault: true },
 ];
 

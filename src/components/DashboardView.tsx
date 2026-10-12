@@ -93,7 +93,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     extendIndefinitePurchase,
     interruptInstallmentPurchase,
     settings,
-    massoterapiaIncomes,
   } = useFinance();
 
   const [chartViewMode, setChartViewMode] = useState<'month' | 'evolution'>('month');
@@ -137,7 +136,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const list = [];
     for (let i = 5; i >= 0; i--) {
       const m = getAdjacentMonth(selectedMonth, -i);
-      const summary = calculateMonthSummary(m, salaries, incomes, expenses, settings, massoterapiaIncomes);
+      const summary = calculateMonthSummary(m, salaries, incomes, expenses, settings);
       list.push({
         referenceMonth: m,
         mes: getShortMonthName(m),
@@ -148,7 +147,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       });
     }
     return list;
-  }, [selectedMonth, salaries, incomes, expenses, settings, massoterapiaIncomes]);
+  }, [selectedMonth, salaries, incomes, expenses, settings]);
 
   // 3. Category Breakdown Data for Donut Chart
   const categoryChartData = useMemo(() => {
@@ -176,7 +175,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       .sort((a, b) => b.value - a.value);
   }, [monthExpenses, monthSummary.totalExpenses, categories]);
 
-  // 4. Revenue Composition (Salário vs Renda Extra vs Massoterapia)
+  // 4. Revenue Composition (Salário vs Renda Extra)
   const revenueCompositionData = useMemo(() => {
     const total = monthSummary.totalRevenue || 1;
     const data = [];
@@ -186,14 +185,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         value: monthSummary.totalSalary,
         color: '#10B981',
         percentage: Math.round((monthSummary.totalSalary / total) * 100),
-      });
-    }
-    if (monthSummary.totalMassoterapia > 0) {
-      data.push({
-        name: 'Renda Massoterapia',
-        value: monthSummary.totalMassoterapia,
-        color: '#0D9488',
-        percentage: Math.round((monthSummary.totalMassoterapia / total) * 100),
       });
     }
     if (monthSummary.totalExtraIncome > 0) {
@@ -381,9 +372,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <div className="text-[11px] mt-3 text-slate-500 flex flex-wrap items-center justify-between gap-1 border-t border-slate-100 pt-2 font-medium">
             <span>Salário: {formatCurrency(monthSummary.totalSalary)}</span>
-            {monthSummary.totalMassoterapia > 0 && (
-              <span className="text-teal-700 font-bold">+ Masso: {formatCurrency(monthSummary.totalMassoterapia)}</span>
-            )}
             <span className="text-emerald-600 font-bold">+ Extra: {formatCurrency(monthSummary.totalExtraIncome)}</span>
           </div>
         </div>

@@ -19,7 +19,6 @@ import { useAuth } from './AuthContext';
 import {
   Salary,
   ExtraIncome,
-  RendaMassoterapia,
   Expense,
   CreditCard,
   InstallmentPurchase,
@@ -51,7 +50,6 @@ import {
   generateInstallmentsPlan,
   getEffectiveSalariesForMonth,
   getEffectiveIncomesForMonth,
-  getEffectiveMassoterapiaForMonth,
   getEffectiveAbatimentosForMonth,
   calculateMonthInstallmentsAndSingleSummary,
 } from '../utils/calculations';
@@ -60,10 +58,6 @@ import {
   syncDataToPostgres,
   deleteEntityFromPostgres,
   loadUserDataFromPostgres,
-  saveMassoterapiaToPostgres,
-  deleteMassoterapiaFromPostgres,
-  deleteMultipleMassoterapiaFromPostgres,
-  autoImportDatabaseSessions,
   saveAbatimentoToPostgres,
   deleteAbatimentoFromPostgres,
   updateExpenseInPostgres,
@@ -92,8 +86,6 @@ interface FinanceContextType {
   effectiveSalariesForMonth: Salary[];
   incomes: ExtraIncome[];
   effectiveIncomesForMonth: ExtraIncome[];
-  massoterapiaIncomes: RendaMassoterapia[];
-  effectiveMassoterapiaForMonth: RendaMassoterapia[];
   expenses: Expense[];
   creditCards: CreditCard[];
   paymentMethods: CustomPaymentMethod[];
@@ -126,23 +118,6 @@ interface FinanceContextType {
   updateIncome: (id: string, data: Partial<ExtraIncome>) => Promise<void>;
   deleteIncome: (id: string) => Promise<void>;
   toggleIncomeStatus: (id: string, currentStatus: 'RECEIVED' | 'PENDING') => Promise<void>;
-
-  addMassoterapiaIncome: (data: {
-    dataLancamento: string;
-    valor: number;
-    observacao?: string;
-    referenceMonth?: string;
-  }) => Promise<string>;
-  updateMassoterapiaIncome: (id: string, data: Partial<RendaMassoterapia>) => Promise<void>;
-  deleteMassoterapiaIncome: (id: string) => Promise<void>;
-  deleteMultipleMassoterapiaIncomes: (ids: string[]) => Promise<void>;
-  autoImportGestaoMassoterapiaSessions?: () => Promise<{
-    success: boolean;
-    count: number;
-    totalAmount: number;
-    message: string;
-    imported?: any[];
-  }>;
 
   // Abatimentos / Adiantamentos de Pagamento
   addAbatimento: (data: Omit<Abatimento, 'id' | 'createdAt' | 'updatedAt'>) => Promise<string>;
@@ -304,7 +279,6 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const [salaries, setSalaries] = useState<Salary[]>([]);
   const [incomes, setIncomes] = useState<ExtraIncome[]>([]);
-  const [massoterapiaIncomes, setMassoterapiaIncomes] = useState<RendaMassoterapia[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [creditCards, setCreditCards] = useState<CreditCard[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<CustomPaymentMethod[]>([]);
@@ -410,7 +384,6 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (!currentUser) {
       setSalaries([]);
       setIncomes([]);
-      setMassoterapiaIncomes([]);
       setExpenses([]);
       setCreditCards([]);
       setPaymentMethods([]);
@@ -442,7 +415,6 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     // Subscriptions com suporte a múltiplos identificadores de usuário
     const salariesQuery = query(collection(db, 'salaries'), where('userId', 'in', allowedUserIds));
     const incomesQuery = query(collection(db, 'incomes'), where('userId', 'in', allowedUserIds));
-    const massoterapiaQuery = query(collection(db, 'renda_massoterapia'), where('userId', 'in', allowedUserIds));
     const expensesQuery = query(collection(db, 'expenses'), where('userId', 'in', allowedUserIds));
     const cardsQuery = query(collection(db, 'creditCards'), where('userId', 'in', allowedUserIds));
     const paymentMethodsQuery = query(collection(db, 'paymentMethods'), where('userId', 'in', [...allowedUserIds, 'default']));
@@ -514,49 +486,6 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         });
       },
       (err) => handleFirestoreError(err, OperationType.LIST, 'incomes')
-    );
-
-    const unsubMassoterapia = onSnapshot(
-      massoterapiaQuery,
-      (snapshot) => {
-        const list: RendaMassoterapia[] = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data() as any;
-          const refMonth = data.referenceMonth || (data.dataLancamento ? data.dataLancamento.substring(0, 7) : '');
-          list.push({
-            id: docSnap.id,
-            userId: data.userId || uid,
-            dataLancamento: data.dataLancamento || '',
-            valor: Number(data.valor) || 0,
-            observacao: data.observacao || undefined,
-            referenceMonth: refMonth,
-            clientePaciente: data.clientePaciente || data.clientName || undefined,
-            clientName: data.clientName || data.clientePaciente || undefined,
-            procedimento: data.procedimento || data.tecnicas || undefined,
-            tecnicas: data.tecnicas || data.procedimento || undefined,
-            tipo: data.tipo || data.tipoSessao || 'Sessão Avulsa',
-            tipoSessao: data.tipoSessao || data.tipo || 'Sessão Avulsa',
-            status: data.status || 'Realizado',
-            profissional: data.profissional || 'Osaias Brito',
-            origem: data.origem || 'Terapias Pro',
-            dadosExtras: data.dadosExtras || undefined,
-            createdAt: data.createdAt || new Date().toISOString(),
-            updatedAt: data.updatedAt || new Date().toISOString(),
-          });
-        });
-
-        setMassoterapiaIncomes((prev) => {
-          const map = new Map<string, RendaMassoterapia>();
-          prev.forEach((item) => {
-            if (!deletedRecordIdsRef.current.has(item.id)) map.set(item.id, item);
-          });
-          list.forEach((item) => {
-            if (!deletedRecordIdsRef.current.has(item.id)) map.set(item.id, item);
-          });
-          return Array.from(map.values());
-        });
-      },
-      (err) => handleFirestoreError(err, OperationType.LIST, 'renda_massoterapia')
     );
 
     const unsubExpenses = onSnapshot(
@@ -702,7 +631,6 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     return () => {
       unsubSalaries();
       unsubIncomes();
-      unsubMassoterapia();
       unsubExpenses();
       unsubCards();
       unsubPaymentMethods();
@@ -733,7 +661,6 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
           userId: effectiveUserId,
           salaries: salaries.filter((s) => !s.id.startsWith('demo')),
           incomes: incomes.filter((i) => !i.id.startsWith('demo')),
-          massoterapia: massoterapiaIncomes.filter((m) => !m.id.startsWith('demo')),
           expenses: expenses.filter((e) => !e.id.startsWith('demo') && e.id !== 'exp-1'),
           creditCards: creditCards.filter((c) => !c.id.startsWith('demo')),
           paymentMethods: paymentMethods.filter((p) => !p.id.startsWith('demo')),
@@ -756,7 +683,6 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     loading,
     salaries,
     incomes,
-    massoterapiaIncomes,
     expenses,
     creditCards,
     paymentMethods,
@@ -850,51 +776,6 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
             }
           });
           return hasNew ? Array.from(map.values()) : prev;
-        });
-      }
-
-      // 2.1. Sincronizar Massoterapia do PostgreSQL (Integração com Terapias Pro)
-      if (Array.isArray(pgData.massoterapia)) {
-        setMassoterapiaIncomes((prev) => {
-          const pgItems: RendaMassoterapia[] = [];
-          const activePgIds = new Set<string>();
-
-          pgData.massoterapia.forEach((pgM: any) => {
-            const idStr = String(pgM.id);
-            if (deletedRecordIdsRef.current.has(idStr)) return;
-
-            const refMonth = pgM.referenceMonth || pgM.mesReferencia || (pgM.dataLancamento ? pgM.dataLancamento.substring(0, 7) : '');
-            const formatted: RendaMassoterapia = {
-              id: idStr,
-              userId: currentUser.uid || pgM.userId || 'osaiasbrito@gmail.com',
-              dataLancamento: pgM.dataLancamento || pgM.data || pgM.date || '',
-              valor: Number(pgM.valor !== undefined ? pgM.valor : (pgM.amount !== undefined ? pgM.amount : pgM.price)) || 0,
-              observacao: pgM.observacao || pgM.notes || pgM.description || undefined,
-              referenceMonth: refMonth,
-              clientePaciente: pgM.clientePaciente || pgM.clientName || undefined,
-              clientName: pgM.clientName || pgM.clientePaciente || undefined,
-              procedimento: pgM.procedimento || pgM.tecnicas || undefined,
-              tecnicas: pgM.tecnicas || pgM.procedimento || undefined,
-              tipo: pgM.tipo || pgM.tipoSessao || 'Sessão Avulsa',
-              tipoSessao: pgM.tipoSessao || pgM.tipo || 'Sessão Avulsa',
-              status: pgM.status || 'Realizado',
-              profissional: pgM.profissional || 'Osaias Brito',
-              origem: pgM.origem || 'Terapias Pro',
-              dadosExtras: pgM.dadosExtras || undefined,
-              createdAt: pgM.createdAt || new Date().toISOString(),
-              updatedAt: pgM.updatedAt || new Date().toISOString(),
-            };
-
-            activePgIds.add(idStr);
-            pgItems.push(formatted);
-          });
-
-          // Preserva itens locais não excluídos que ainda não chegaram ao PG
-          const localOnly = prev.filter(
-            (p) => !deletedRecordIdsRef.current.has(p.id) && !activePgIds.has(p.id) && p.id.startsWith('local_')
-          );
-
-          return [...pgItems, ...localOnly];
         });
       }
 
@@ -1020,10 +901,25 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
               const base = useLocal ? formatted : existing;
               const override = useLocal ? existing : formatted;
 
-              const isPix = formatted.paymentMethod === 'PIX' || isPixExpense(formatted);
-              const isBoleto = formatted.paymentMethod === 'BOLETO' || isBoletoExpense(formatted);
+              const rawCard = override.cardName || base.cardName || formatted.cardName;
+              const rawCardId = override.cardId || base.cardId || formatted.cardId;
+              const cardUpper = (rawCard || '').trim().toUpperCase();
+              const cardIdLower = (rawCardId ? String(rawCardId) : '').toLowerCase();
+              const hasRealCard = (rawCard && !['PIX', 'BOLETO', 'OUTRO', 'OUTROS'].includes(cardUpper)) ||
+                                  (rawCardId && rawCardId !== 'other-method' && !cardIdLower.includes('pix') && !cardIdLower.includes('boleto'));
 
-              const mergedPaymentMethod = isPix ? 'PIX' : isBoleto ? 'BOLETO' : (override.paymentMethod || base.paymentMethod);
+              const isExplicitCard = override.paymentMethod === 'CARTAO_CREDITO' || base.paymentMethod === 'CARTAO_CREDITO' || formatted.paymentMethod === 'CARTAO_CREDITO' || hasRealCard;
+
+              const isPix = !isExplicitCard && (formatted.paymentMethod === 'PIX' || isPixExpense(formatted));
+              const isBoleto = !isExplicitCard && (formatted.paymentMethod === 'BOLETO' || isBoletoExpense(formatted));
+
+              const mergedPaymentMethod = isExplicitCard
+                ? 'CARTAO_CREDITO'
+                : isPix
+                ? 'PIX'
+                : isBoleto
+                ? 'BOLETO'
+                : (override.paymentMethod || base.paymentMethod);
               const isCard = mergedPaymentMethod === 'CARTAO_CREDITO';
 
               const recentStatus = recentStatusUpdatesRef.current.get(pgExp.id);
@@ -1220,17 +1116,12 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     return getEffectiveIncomesForMonth(selectedMonth, incomes);
   }, [selectedMonth, incomes]);
 
-  // Effective massoterapia incomes for selected month
-  const effectiveMassoterapiaForMonth = useMemo(() => {
-    return getEffectiveMassoterapiaForMonth(selectedMonth, massoterapiaIncomes);
-  }, [selectedMonth, massoterapiaIncomes]);
-
   // Effective abatimentos for selected month
   const effectiveAbatimentosForMonth = useMemo(() => {
     return getEffectiveAbatimentosForMonth(selectedMonth, abatimentos);
   }, [selectedMonth, abatimentos]);
 
-  // Financial summary for selected month (inclui Salário Fixo + Renda Massoterapia + Renda Extra - Abatimentos)
+  // Financial summary for selected month (inclui Salário Fixo + Renda Extra - Abatimentos)
   const monthSummary = useMemo(() => {
     return calculateMonthSummary(
       selectedMonth,
@@ -1238,10 +1129,9 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       incomes,
       expenses,
       settings,
-      massoterapiaIncomes,
       abatimentos
     );
-  }, [selectedMonth, salaries, incomes, expenses, settings, massoterapiaIncomes, abatimentos]);
+  }, [selectedMonth, salaries, incomes, expenses, settings, abatimentos]);
 
   // Installments & Single expenses summary for selected month
   const monthInstallmentsAndSingleSummary = useMemo(() => {
@@ -1495,197 +1385,6 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const toggleIncomeStatus = async (id: string, currentStatus: 'RECEIVED' | 'PENDING'): Promise<void> => {
     const nextStatus = currentStatus === 'RECEIVED' ? 'PENDING' : 'RECEIVED';
     await updateIncome(id, { status: nextStatus });
-  };
-
-  // Massoterapia Income CRUD
-  const addMassoterapiaIncome = async (data: {
-    dataLancamento: string;
-    valor: number;
-    observacao?: string;
-    referenceMonth?: string;
-  }): Promise<string> => {
-    if (!currentUser) throw new Error('Usuário não autenticado');
-    if (isDataEntryBlocked) {
-      throw new Error('Seu período de teste expirou. Efetue o pagamento da taxa para liberar novos lançamentos.');
-    }
-    const nowIso = new Date().toISOString();
-    const refMonth = data.referenceMonth || (data.dataLancamento ? data.dataLancamento.substring(0, 7) : selectedMonth);
-
-    if (isDemoUser) {
-      const newId = `demo-masso-${Date.now()}`;
-      const newItem: RendaMassoterapia = {
-        id: newId,
-        userId: currentUser.uid,
-        dataLancamento: data.dataLancamento,
-        valor: Number(data.valor) || 0,
-        observacao: data.observacao || undefined,
-        referenceMonth: refMonth,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-      };
-      setMassoterapiaIncomes((prev) => [newItem, ...prev]);
-      return newId;
-    }
-
-    const docRef = doc(collection(db, 'renda_massoterapia'));
-    const newId = docRef.id;
-    const newItem: RendaMassoterapia = {
-      id: newId,
-      userId: currentUser.uid,
-      dataLancamento: data.dataLancamento,
-      valor: Number(data.valor) || 0,
-      observacao: data.observacao || undefined,
-      referenceMonth: refMonth,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    };
-
-    // Optimistic local update
-    setMassoterapiaIncomes((prev) => [newItem, ...prev.filter((m) => m.id !== newId)]);
-
-    try {
-      await setDoc(docRef, sanitizeData({
-        ...newItem,
-        serverCreatedAt: serverTimestamp(),
-        serverUpdatedAt: serverTimestamp(),
-      }));
-
-      // Sincroniza diretamente no PostgreSQL
-      const token = await getSafeUserToken(currentUser);
-      saveMassoterapiaToPostgres(newItem, currentUser.uid, token).catch((e) =>
-        console.warn('Aviso ao sincronizar renda massoterapia no PostgreSQL:', e)
-      );
-
-      await setDoc(docRef, sanitizeData({
-        ...newItem,
-        serverCreatedAt: serverTimestamp(),
-        serverUpdatedAt: serverTimestamp(),
-      }));
-    } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `renda_massoterapia/${newId}`);
-    }
-
-    return newId;
-  };
-
-  const updateMassoterapiaIncome = async (id: string, data: Partial<RendaMassoterapia>): Promise<void> => {
-    const nowIso = new Date().toISOString();
-    setMassoterapiaIncomes((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, ...data, updatedAt: nowIso } : m))
-    );
-
-    if (isDemoUser || !currentUser) return;
-
-    try {
-      const token = await getSafeUserToken(currentUser);
-      saveMassoterapiaToPostgres({ id, ...data }, currentUser.uid, token).catch((e) =>
-        console.warn('Aviso ao atualizar massoterapia no PostgreSQL:', e)
-      );
-
-      await updateDoc(
-        doc(db, 'renda_massoterapia', id),
-        sanitizeData({ ...data, updatedAt: nowIso, serverUpdatedAt: serverTimestamp() })
-      );
-    } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `renda_massoterapia/${id}`);
-    }
-  };
-
-  const deleteMassoterapiaIncome = async (id: string): Promise<void> => {
-    registerDeletedIds([id]);
-    setMassoterapiaIncomes((prev) =>
-      prev.filter((m) => m.id !== id && !deletedRecordIdsRef.current.has(m.id))
-    );
-
-    if (isDemoUser || !currentUser) return;
-
-    const token = await getSafeUserToken(currentUser);
-    const targetUserId = currentUser.uid || 'osaiasbrito@gmail.com';
-
-    // 1. Exclui com máxima prioridade no PostgreSQL com await garantido
-    try {
-      await deleteMassoterapiaFromPostgres(id, targetUserId, token);
-    } catch (e) {
-      console.warn('Aviso ao excluir massoterapia do PostgreSQL:', e);
-    }
-
-    // 2. Exclui do Firestore de forma isolada e segura
-    try {
-      await deleteDoc(doc(db, 'renda_massoterapia', id));
-    } catch (err) {
-      console.warn('Aviso Firestore ao excluir renda_massoterapia:', err);
-    }
-  };
-
-  const deleteMultipleMassoterapiaIncomes = async (ids: string[]): Promise<void> => {
-    if (!ids || ids.length === 0) return;
-    registerDeletedIds(ids);
-    setMassoterapiaIncomes((prev) =>
-      prev.filter((m) => !deletedRecordIdsRef.current.has(m.id))
-    );
-
-    if (isDemoUser || !currentUser) return;
-
-    const token = await getSafeUserToken(currentUser);
-    const targetUserId = currentUser.uid || 'osaiasbrito@gmail.com';
-
-    // 1. Exclui em lote no PostgreSQL via endpoint bulk-delete com await garantido
-    try {
-      await deleteMultipleMassoterapiaFromPostgres(ids, targetUserId, token);
-    } catch (err) {
-      console.warn('Aviso ao excluir em lote de massoterapia no PostgreSQL:', err);
-    }
-
-    // 2. Exclui do Firestore de forma isolada
-    await Promise.allSettled(
-      ids.map(async (id) => {
-        try {
-          await deleteDoc(doc(db, 'renda_massoterapia', id));
-        } catch {}
-      })
-    );
-  };
-
-  // Função para importar automaticamente os lançamentos de sessões avulsas existentes no banco de Gestão de Pessoas para o fluxo de receitas financeiras
-  const autoImportGestaoMassoterapiaSessions = async () => {
-    if (!currentUser || isDemoUser) {
-      return {
-        success: true,
-        count: 0,
-        totalAmount: 0,
-        message: 'Modo de demonstração',
-        imported: [],
-      };
-    }
-    try {
-      const token = await getSafeUserToken(currentUser);
-      const isOsaias =
-        currentUser.email?.toLowerCase() === 'osaiasbrito@gmail.com' ||
-        currentUser.uid?.toLowerCase().includes('osaias');
-      const targetUserId = isOsaias ? 'osaiasbrito@gmail.com' : (currentUser.uid || 'osaiasbrito@gmail.com');
-
-      const result = await autoImportDatabaseSessions(targetUserId, token);
-
-      // Sincronizar os dados do PostgreSQL para o estado React e Firestore
-      await refreshDataFromPostgres();
-
-      return {
-        success: result.success !== false,
-        count: result.count || 0,
-        totalAmount: result.totalAmount || 0,
-        message: result.message || `${result.count || 0} lançamento(s) sincronizado(s) com sucesso.`,
-        imported: result.imported || [],
-      };
-    } catch (error: any) {
-      console.warn('Aviso ao importar automaticamente sessões de massoterapia:', error);
-      return {
-        success: false,
-        count: 0,
-        totalAmount: 0,
-        message: error.message || 'Falha ao importar sessões do banco de dados.',
-        imported: [],
-      };
-    }
   };
 
   // Abatimentos / Adiantamentos CRUD
@@ -3220,12 +2919,6 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       return filtered;
     });
 
-    setMassoterapiaIncomes((prev) => {
-      const filtered = prev.filter((m) => !m.id.startsWith('demo') && !m.observacao?.toLowerCase().includes('teste') && m.valor !== 0.01);
-      deletedCount += prev.length - filtered.length;
-      return filtered;
-    });
-
     setExpenses((prev) => {
       const filtered = prev.filter((e) => !e.id.startsWith('demo') && e.id !== 'exp-1' && !e.description?.toLowerCase().includes('teste'));
       deletedCount += prev.length - filtered.length;
@@ -3252,7 +2945,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     // 3. Excluir documentos de teste remanescentes no Firestore
     try {
-      const collectionsToCheck = ['expenses', 'incomes', 'salaries', 'creditCards', 'installmentPurchases', 'renda_massoterapia'];
+      const collectionsToCheck = ['expenses', 'incomes', 'salaries', 'creditCards', 'installmentPurchases'];
       for (const colName of collectionsToCheck) {
         const snap = await getDocs(collection(db, colName));
         for (const docSnap of snap.docs) {
@@ -3290,8 +2983,6 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         effectiveSalariesForMonth,
         incomes,
         effectiveIncomesForMonth,
-        massoterapiaIncomes,
-        effectiveMassoterapiaForMonth,
         expenses,
         creditCards,
         paymentMethods,
@@ -3314,11 +3005,6 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
         updateIncome,
         deleteIncome,
         toggleIncomeStatus,
-        addMassoterapiaIncome,
-        updateMassoterapiaIncome,
-        deleteMassoterapiaIncome,
-        deleteMultipleMassoterapiaIncomes,
-        autoImportGestaoMassoterapiaSessions,
         addAbatimento,
         deleteAbatimento,
         addExpense,

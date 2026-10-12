@@ -37,7 +37,7 @@ const COLORS = [
 ];
 
 export const ReportsView: React.FC = () => {
-  const { selectedMonth, salaries, incomes, expenses, categories, creditCards, paymentMethods, monthSummary, settings, massoterapiaIncomes } = useFinance();
+  const { selectedMonth, salaries, incomes, expenses, categories, creditCards, paymentMethods, monthSummary, settings } = useFinance();
   const [activeTab, setActiveTab] = useState<'evolution' | 'categories' | 'monthBalance'>('evolution');
 
   // Month-specific expense items
@@ -51,7 +51,7 @@ export const ReportsView: React.FC = () => {
     const list = [];
     for (let i = 5; i >= 0; i--) {
       const m = getAdjacentMonth(selectedMonth, -i);
-      const summary = calculateMonthSummary(m, salaries, incomes, expenses, settings, massoterapiaIncomes);
+      const summary = calculateMonthSummary(m, salaries, incomes, expenses, settings);
       list.push({
         referenceMonth: m,
         month: getShortMonthName(m),
@@ -62,7 +62,7 @@ export const ReportsView: React.FC = () => {
       });
     }
     return list;
-  }, [selectedMonth, salaries, incomes, expenses, settings, massoterapiaIncomes]);
+  }, [selectedMonth, salaries, incomes, expenses, settings]);
 
   // Aggregated totals over the 6-month period
   const totalPeriodRevenue = useMemo(

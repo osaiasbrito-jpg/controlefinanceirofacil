@@ -745,7 +745,8 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
                 const newCatId = e.target.value;
                 setCategoryId(newCatId);
                 const selected = categories.find((c) => c.id === newCatId);
-                if (selected) {
+                // Apenas sugere mudança se o usuário NÃO tiver selecionado Cartão de Crédito
+                if (selected && paymentMethod !== 'CARTAO_CREDITO') {
                   const lowerName = selected.name.toLowerCase().trim();
                   if (lowerName === 'pix' || /\bpix\b/i.test(lowerName)) {
                     setPaymentMethod('PIX');
