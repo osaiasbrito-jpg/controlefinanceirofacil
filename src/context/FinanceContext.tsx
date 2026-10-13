@@ -292,16 +292,11 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [filters, setFilters] = useState<ExpenseFilters>(defaultFilters);
   const isRefreshingFromPgRef = useRef<boolean>(false);
   const isSyncingToPgRef = useRef<boolean>(false);
-  const deletedRecordIdsRef = useRef<Set<string>>((() => {
-    try {
-      const saved = localStorage.getItem('meu_controle_deleted_record_ids');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return new Set<string>(parsed);
-      }
-    } catch {}
-    return new Set<string>();
-  })());
+  const deletedRecordIdsRef = useRef<Set<string>>(new Set<string>());
+  // Limpeza de cache local de exclusões antigas para manter celular e computador 100% sincronizados
+  try {
+    localStorage.removeItem('meu_controle_deleted_record_ids');
+  } catch {}
   const recentStatusUpdatesRef = useRef<Map<string, { status: 'PAGA' | 'PENDENTE'; timestamp: number }>>(new Map());
 
   const getEffectiveDatabaseUserId = useCallback((): string => {
@@ -338,12 +333,12 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       deletedRecordIdsRef.current.add(`extra_${stripped}`);
       deletedRecordIdsRef.current.add(`sessao_${stripped}`);
     });
-    try {
-      localStorage.setItem(
-        'meu_controle_deleted_record_ids',
-        JSON.stringify(Array.from(deletedRecordIdsRef.current).slice(-2000))
-      );
-    } catch {}
+    // Expira a proteção otimista após 15 segundos para não bloquear recargas legítimas do banco
+    setTimeout(() => {
+      ids.forEach((id) => {
+        deletedRecordIdsRef.current.delete(id);
+      });
+    }, 15000);
   }, []);
 
   // Month navigation

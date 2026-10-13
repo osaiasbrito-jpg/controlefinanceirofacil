@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Receipt,
   Plus,
@@ -109,6 +109,13 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
   const [activeBreakdownFilter, setActiveBreakdownFilter] = useState<ActiveBreakdownFilter>({
     type: 'ALL',
   });
+
+  // Ao navegar entre meses, reseta os filtros de status e quebra para exibir todas as despesas e projeções completas do mês selecionado
+  useEffect(() => {
+    setActiveTabStatus('ALL');
+    setActiveBreakdownFilter({ type: 'ALL' });
+    setSelectedExpenseIds(new Set());
+  }, [selectedMonth]);
 
   // Abatimento Modal state
   const [isAbatimentoModalOpen, setIsAbatimentoModalOpen] = useState(false);
