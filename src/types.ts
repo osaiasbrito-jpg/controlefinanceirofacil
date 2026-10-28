@@ -443,6 +443,7 @@ export interface AiQuickQueryParams {
   singleExpenses: AiRelevantExpense[];
   lastInstallments: AiRelevantExpense[];
   allInstallments: AiRelevantExpense[];
+  allExpenses?: AiRelevantExpense[];
   totalExpenses?: number;
   totalRevenue?: number;
 }
