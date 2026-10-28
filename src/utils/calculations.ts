@@ -543,12 +543,26 @@ export const generateInstallmentsPlan = (
  * as well as the combined non-recurring total that will be released from future months' budgets.
  */
 export const calculateMonthInstallmentsAndSingleSummary = (
-  referenceMonth: string,
-  expenses: Expense[],
+  refMonthOrExpenses: string | Expense[],
+  expensesOrRefMonth?: Expense[] | string,
   installmentPurchases: InstallmentPurchase[] = []
 ): MonthInstallmentsAndSingleSummary => {
-  const monthExpenses = expenses.filter(
-    (e) => (e.referenceMonth || (e.date ? e.date.substring(0, 7) : '')) === referenceMonth
+  let referenceMonth = '';
+  let expensesList: Expense[] = [];
+
+  if (typeof refMonthOrExpenses === 'string') {
+    referenceMonth = refMonthOrExpenses;
+    expensesList = Array.isArray(expensesOrRefMonth) ? expensesOrRefMonth : [];
+  } else if (Array.isArray(refMonthOrExpenses)) {
+    expensesList = refMonthOrExpenses;
+    referenceMonth = typeof expensesOrRefMonth === 'string' ? expensesOrRefMonth : '';
+  }
+
+  const safeExpenses = Array.isArray(expensesList) ? expensesList : [];
+  const safePurchases = Array.isArray(installmentPurchases) ? installmentPurchases : [];
+
+  const monthExpenses = safeExpenses.filter(
+    (e) => Boolean(e) && (e.referenceMonth || (e.date ? e.date.substring(0, 7) : '')) === referenceMonth
   );
 
   // 1. Todas as Parcelas do Mês (ativas)
@@ -563,7 +577,7 @@ export const calculateMonthInstallmentsAndSingleSummary = (
 
   for (const exp of monthExpenses) {
     // 1. Despesas indeterminadas / assinaturas contínuas são recorrentes por definição e NUNCA entram em Compras à Vista nem na Soma Total Não-Recorrente
-    if (isIndefiniteExpense(exp, installmentPurchases)) {
+    if (isIndefiniteExpense(exp, safePurchases)) {
       continue;
     }
 

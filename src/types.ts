@@ -411,3 +411,55 @@ export interface GeminiFinancialAnalysis {
   source?: string;
 }
 
+export interface AiRelevantExpense {
+  id?: string;
+  description: string;
+  amount: number;
+  formattedAmount?: string;
+  paymentMethod?: string;
+  cardName?: string;
+  categoryName?: string;
+  installmentNumber?: number;
+  installmentTotal?: number;
+  installmentInfo?: string;
+  status?: string;
+  date?: string;
+  isRecurring?: boolean;
+}
+
+export interface AiQuickQueryParams {
+  queryType?: 'SINGLE' | 'LAST_INSTALLMENTS' | 'COMBINED' | 'ALL_INSTALLMENTS' | 'CUSTOM';
+  customPrompt?: string;
+  month: string;
+  monthName: string;
+  singleExpensesTotal: number;
+  lastInstallmentsTotal: number;
+  combinedTotal: number;
+  allInstallmentsTotal: number;
+  singleExpensesCount: number;
+  lastInstallmentsCount: number;
+  combinedCount: number;
+  allInstallmentsCount: number;
+  singleExpenses: AiRelevantExpense[];
+  lastInstallments: AiRelevantExpense[];
+  allInstallments: AiRelevantExpense[];
+  totalExpenses?: number;
+  totalRevenue?: number;
+}
+
+export interface AiQuickQueryResult {
+  title: string;
+  highlightValue: number | string;
+  formattedValue: string;
+  explanation: string;
+  breakdown: string;
+  nextMonthRelief: string;
+  keyTakeaway: string;
+  relevantExpenses: AiRelevantExpense[];
+  suggestedQuestions?: string[];
+  source?: string;
+}
+
+
+
+

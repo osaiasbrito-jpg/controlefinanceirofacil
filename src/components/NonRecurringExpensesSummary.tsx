@@ -21,6 +21,7 @@ interface NonRecurringExpensesSummaryProps {
   onFilterByAllInstallments?: () => void;
   onFilterByLastInstallments?: () => void;
   onFilterBySingleExpenses?: () => void;
+  onOpenAiAssistant?: (queryType?: 'SINGLE' | 'LAST_INSTALLMENTS' | 'COMBINED' | 'ALL_INSTALLMENTS') => void;
   className?: string;
 }
 
@@ -29,6 +30,7 @@ export const NonRecurringExpensesSummary: React.FC<NonRecurringExpensesSummaryPr
   onFilterByAllInstallments,
   onFilterByLastInstallments,
   onFilterBySingleExpenses,
+  onOpenAiAssistant,
   className = '',
 }) => {
   const [showInstallmentsList, setShowInstallmentsList] = useState(false);
@@ -318,6 +320,18 @@ export const NonRecurringExpensesSummary: React.FC<NonRecurringExpensesSummaryPr
                 <strong>{formatCurrency(lastInstallmentsTotal + singleExpensesTotal)}</strong> estarão liberados no seu orçamento do mês que vem!
               </span>
             </div>
+
+            {onOpenAiAssistant && (
+              <button
+                type="button"
+                onClick={() => onOpenAiAssistant('COMBINED')}
+                className="mt-2 w-full py-2 px-3 rounded-xl bg-white/20 hover:bg-white/30 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                title="Consultar com inteligência artificial"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                <span>Analisar Alívio com I.A</span>
+              </button>
+            )}
           </div>
         </div>
       </div>

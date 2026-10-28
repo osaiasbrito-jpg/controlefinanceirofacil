@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   FileSpreadsheet,
   Database,
+  Sparkles,
 } from 'lucide-react';
 import { useFinance } from '../context/FinanceContext';
 import { getMonthName, getCurrentMonth, formatDateBR, formatCurrency } from '../utils/formatters';
@@ -24,6 +25,7 @@ interface HeaderProps {
   onOpenIncomeModal: () => void;
   onOpenSalaryModal: () => void;
   onOpenImportExcel?: () => void;
+  onOpenAiModal?: () => void;
   onToggleMobileMenu: () => void;
 }
 
@@ -32,6 +34,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenIncomeModal,
   onOpenSalaryModal,
   onOpenImportExcel,
+  onOpenAiModal,
   onToggleMobileMenu,
 }) => {
   const {
@@ -268,6 +271,18 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Action Buttons */}
         <div className="flex items-center gap-2">
+          {onOpenAiModal && (
+            <button
+              id="header-ai-assistant-btn"
+              onClick={onOpenAiModal}
+              className="flex items-center gap-1.5 bg-gradient-to-r from-teal-600 via-emerald-600 to-cyan-600 hover:from-teal-700 hover:to-emerald-700 text-white px-3.5 py-2.5 rounded-xl font-bold text-xs shadow-md shadow-emerald-500/20 transition-all shrink-0 cursor-pointer group"
+              title="Consultar com I.A (Soma à vista, últimas parcelas e alívio do próximo mês)"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-300 group-hover:scale-110 transition-transform animate-pulse" />
+              <span>Buscar com I.A</span>
+            </button>
+          )}
+
           {onOpenImportExcel && (
             <button
               id="header-import-excel-btn"

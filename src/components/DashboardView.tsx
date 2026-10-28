@@ -59,6 +59,7 @@ interface DashboardViewProps {
   onEditExpense: (expense: Expense) => void;
   onDeleteExpense: (expense: Expense) => void;
   onOpenCardModal: () => void;
+  onOpenAiModal?: (queryType?: 'SINGLE' | 'LAST_INSTALLMENTS' | 'COMBINED' | 'ALL_INSTALLMENTS') => void;
 }
 
 const CATEGORY_COLORS = [
@@ -73,6 +74,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onEditExpense,
   onDeleteExpense,
   onOpenCardModal,
+  onOpenAiModal,
 }) => {
   const {
     selectedMonth,
@@ -478,6 +480,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* Resumo de Últimas Parcelas e Compras à Vista (Não-Recorrentes) */}
       <NonRecurringExpensesSummary
         summary={monthInstallmentsAndSingleSummary}
+        onOpenAiAssistant={onOpenAiModal}
       />
 
       {/* INDICATORS OF FINANCIAL HEALTH BAR */}

@@ -65,6 +65,7 @@ interface ExpensesViewProps {
   onOpenExpenseModal: (expenseToEdit?: Expense) => void;
   onDeleteExpense: (expense: Expense) => void;
   onOpenImportExcel?: () => void;
+  onOpenAiModal?: (queryType?: 'SINGLE' | 'LAST_INSTALLMENTS' | 'COMBINED' | 'ALL_INSTALLMENTS') => void;
 }
 
 type ActiveBreakdownFilter =
@@ -76,6 +77,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
   onOpenExpenseModal,
   onDeleteExpense,
   onOpenImportExcel,
+  onOpenAiModal,
 }) => {
   const {
     expenses,
@@ -852,6 +854,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
         onFilterByAllInstallments={() => setFilters((p) => ({ ...p, installmentType: 'PARCELADA' }))}
         onFilterByLastInstallments={() => setFilters((p) => ({ ...p, installmentType: 'PARCELADA' }))}
         onFilterBySingleExpenses={() => setFilters((p) => ({ ...p, installmentType: 'A_VISTA' }))}
+        onOpenAiAssistant={onOpenAiModal}
       />
 
       {/* Payment Methods & Credit Cards Breakdown Banner (Print 02 Feature) */}

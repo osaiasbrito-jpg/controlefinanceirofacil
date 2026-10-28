@@ -519,7 +519,7 @@ DIRETRIZES DE RESPOSTA:
 6. Estime um potencial de economia mensal realista em Reais (ex: 150.00).`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
+        model: 'gemini-3.8-flash',
         contents: prompt,
         config: {
           systemInstruction: 'Você é um consultor financeiro de alto nível especializado em finanças pessoais brasileiras. Gere saídas estritamente no formato JSON estruturado conforme o schema solicitado.',
@@ -610,6 +610,206 @@ DIRETRIZES DE RESPOSTA:
         success: true,
         source: 'fallback-after-error',
         data: fallbackData,
+        error: error?.message,
+      });
+    }
+  });
+
+  // Endpoint para consultas rápidas com I.A sobre o mês financeiro
+  app.post('/api/gemini/quick-query', optionalAuth, async (req: AuthRequest, res) => {
+    try {
+      const {
+        queryType = 'COMBINED',
+        customPrompt = '',
+        month = '',
+        monthName = '',
+        singleExpensesTotal = 0,
+        lastInstallmentsTotal = 0,
+        combinedTotal = 0,
+        allInstallmentsTotal = 0,
+        singleExpensesCount = 0,
+        lastInstallmentsCount = 0,
+        combinedCount = 0,
+        allInstallmentsCount = 0,
+        singleExpenses = [],
+        lastInstallments = [],
+        allInstallments = [],
+        totalExpenses = 0,
+        totalRevenue = 0,
+      } = req.body || {};
+
+      const apiKey = process.env.GEMINI_API_KEY;
+
+      // Se a chave Gemini não estiver configurada, usa o motor algorítmico inteligente local
+      if (!apiKey) {
+        const localResult = generateSmartQuickAnswer({
+          queryType,
+          customPrompt,
+          month,
+          monthName: monthName || month || 'este mês',
+          singleExpensesTotal: Number(singleExpensesTotal) || 0,
+          lastInstallmentsTotal: Number(lastInstallmentsTotal) || 0,
+          combinedTotal: Number(combinedTotal) || 0,
+          allInstallmentsTotal: Number(allInstallmentsTotal) || 0,
+          singleExpensesCount: Number(singleExpensesCount) || 0,
+          lastInstallmentsCount: Number(lastInstallmentsCount) || 0,
+          combinedCount: Number(combinedCount) || 0,
+          allInstallmentsCount: Number(allInstallmentsCount) || 0,
+          singleExpenses: Array.isArray(singleExpenses) ? singleExpenses : [],
+          lastInstallments: Array.isArray(lastInstallments) ? lastInstallments : [],
+          allInstallments: Array.isArray(allInstallments) ? allInstallments : [],
+          totalExpenses: Number(totalExpenses) || 0,
+          totalRevenue: Number(totalRevenue) || 0,
+        });
+
+        return res.json({
+          success: true,
+          source: 'local-intelligence',
+          data: localResult,
+        });
+      }
+
+      const ai = new GoogleGenAI({
+        apiKey: apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+        },
+      });
+
+      const prompt = `Você é um assistente de inteligência financeira pessoal especialista em finanças brasileiras (moeda R$ Real Brasileiro).
+Responda com máxima precisão e clareza em Português do Brasil à consulta sobre o mês de ${monthName || month}.
+
+TIPO DE CONSULTA: ${queryType}
+PERGUNTA / SOLICITAÇÃO DO USUÁRIO: "${customPrompt || (
+        queryType === 'SINGLE' ? 'Qual a soma das compras à vista neste mês?' :
+        queryType === 'LAST_INSTALLMENTS' ? 'Qual a soma de últimas parcelas que finalizam neste mês?' :
+        queryType === 'COMBINED' ? 'Qual a soma de últimas parcelas + compras à vista que darão alívio ao próximo mês?' :
+        queryType === 'ALL_INSTALLMENTS' ? 'Qual o total de parcelas ativas no mês?' :
+        'Análise rápida das despesas deste mês'
+      )}"
+
+DADOS MATEMÁTICOS VERIFICADOS DO MÊS (${monthName || month}):
+- Compras/Parcelas à Vista: R$ ${(Number(singleExpensesTotal) || 0).toFixed(2)} (${singleExpensesCount} despesas)
+- Últimas Parcelas que Encerram no Mês: R$ ${(Number(lastInstallmentsTotal) || 0).toFixed(2)} (${lastInstallmentsCount} parcelas finais)
+- Soma de Últimas Parcelas + Compras à Vista (Alívio do Próximo Mês): R$ ${(Number(combinedTotal) || 0).toFixed(2)} (${combinedCount} despesas somadas)
+- Total de Parcelas Ativas no Mês: R$ ${(Number(allInstallmentsTotal) || 0).toFixed(2)} (${allInstallmentsCount} parcelas ativas)
+- Total Geral de Despesas: R$ ${(Number(totalExpenses) || 0).toFixed(2)}
+- Total de Receitas: R$ ${(Number(totalRevenue) || 0).toFixed(2)}
+
+LISTA DE ÚLTIMAS PARCELAS:
+${lastInstallments.slice(0, 15).map((e: any) => `- ${e.description}: R$ ${Number(e.amount || 0).toFixed(2)} (parcela ${e.installmentNumber || ''}/${e.installmentTotal || ''})`).join('\n') || 'Nenhuma última parcela neste mês.'}
+
+LISTA DE COMPRAS À VISTA:
+${singleExpenses.slice(0, 15).map((e: any) => `- ${e.description}: R$ ${Number(e.amount || 0).toFixed(2)} (${e.paymentMethod || 'À Vista'})`).join('\n') || 'Nenhuma compra à vista cadastrada.'}
+
+DIRETRIZES:
+1. Calcule e confirme os valores exatos em BRL (R$ 0,00). Nunca invente valores diferentes dos calculados.
+2. Explique com didática simples por que a soma de últimas parcelas + compras à vista representa alívio direto no orçamento do próximo mês (essas contas não voltarão no mês seguinte).
+3. Seja objetivo, acolhedor e encorajador.`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: prompt,
+        config: {
+          systemInstruction: 'Você é um assistente financeiro especialista em finanças pessoais brasileiras. Retorne respostas estritamente estruturadas em JSON de acordo com o esquema solicitado.',
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              title: {
+                type: Type.STRING,
+                description: 'Título curto e explicativo do resultado em português.',
+              },
+              highlightValue: {
+                type: Type.NUMBER,
+                description: 'O valor financeiro numérico principal resultante da busca em Reais (ex: 350.50).',
+              },
+              formattedValue: {
+                type: Type.STRING,
+                description: 'O valor principal formatado no padrão brasileiro (ex: "R$ 350,50").',
+              },
+              explanation: {
+                type: Type.STRING,
+                description: 'Explicação direta e detalhada da resposta para o usuário.',
+              },
+              breakdown: {
+                type: Type.STRING,
+                description: 'Detalhamento resumido da composição da soma.',
+              },
+              nextMonthRelief: {
+                type: Type.STRING,
+                description: 'Impacto ou alívio projetado para o próximo mês.',
+              },
+              keyTakeaway: {
+                type: Type.STRING,
+                description: 'Dica ou conclusão financeira chave para a tomada de decisão.',
+              },
+              suggestedQuestions: {
+                type: Type.ARRAY,
+                description: '2 a 3 sugestões de outras perguntas rápidas relevantes.',
+                items: {
+                  type: Type.STRING,
+                },
+              },
+            },
+            required: ['title', 'highlightValue', 'formattedValue', 'explanation', 'breakdown', 'nextMonthRelief', 'keyTakeaway'],
+          },
+        },
+      });
+
+      const responseText = response.text?.trim() || '{}';
+      const parsedData = JSON.parse(responseText);
+
+      // Associa a lista de despesas relevantes de acordo com o tipo
+      let relevantExpenses: any[] = [];
+      if (queryType === 'SINGLE') {
+        relevantExpenses = singleExpenses;
+      } else if (queryType === 'LAST_INSTALLMENTS') {
+        relevantExpenses = lastInstallments;
+      } else if (queryType === 'COMBINED') {
+        relevantExpenses = [...lastInstallments, ...singleExpenses];
+      } else if (queryType === 'ALL_INSTALLMENTS') {
+        relevantExpenses = allInstallments;
+      } else {
+        relevantExpenses = [...lastInstallments, ...singleExpenses];
+      }
+
+      parsedData.relevantExpenses = relevantExpenses;
+
+      return res.json({
+        success: true,
+        source: 'gemini-ai',
+        data: parsedData,
+      });
+    } catch (error: any) {
+      console.error('Erro na consulta rápida com Gemini:', error);
+      // Fallback em caso de erro na chamada do Gemini
+      const fallbackResult = generateSmartQuickAnswer({
+        queryType: req.body?.queryType || 'COMBINED',
+        customPrompt: req.body?.customPrompt || '',
+        month: req.body?.month || '',
+        monthName: req.body?.monthName || 'este mês',
+        singleExpensesTotal: Number(req.body?.singleExpensesTotal) || 0,
+        lastInstallmentsTotal: Number(req.body?.lastInstallmentsTotal) || 0,
+        combinedTotal: Number(req.body?.combinedTotal) || 0,
+        allInstallmentsTotal: Number(req.body?.allInstallmentsTotal) || 0,
+        singleExpensesCount: Number(req.body?.singleExpensesCount) || 0,
+        lastInstallmentsCount: Number(req.body?.lastInstallmentsCount) || 0,
+        combinedCount: Number(req.body?.combinedCount) || 0,
+        allInstallmentsCount: Number(req.body?.allInstallmentsCount) || 0,
+        singleExpenses: Array.isArray(req.body?.singleExpenses) ? req.body.singleExpenses : [],
+        lastInstallments: Array.isArray(req.body?.lastInstallments) ? req.body.lastInstallments : [],
+        allInstallments: Array.isArray(req.body?.allInstallments) ? req.body.allInstallments : [],
+        totalExpenses: Number(req.body?.totalExpenses) || 0,
+        totalRevenue: Number(req.body?.totalRevenue) || 0,
+      });
+
+      return res.json({
+        success: true,
+        source: 'fallback-after-error',
+        data: fallbackResult,
         error: error?.message,
       });
     }
@@ -805,4 +1005,141 @@ function generateSmartLocalFinancialAdvice(params: {
   };
 }
 
+/**
+ * Motor algorítmico de resposta inteligente rápida para finanças do mês
+ */
+function generateSmartQuickAnswer(params: {
+  queryType: string;
+  customPrompt?: string;
+  month: string;
+  monthName: string;
+  singleExpensesTotal: number;
+  lastInstallmentsTotal: number;
+  combinedTotal: number;
+  allInstallmentsTotal: number;
+  singleExpensesCount: number;
+  lastInstallmentsCount: number;
+  combinedCount: number;
+  allInstallmentsCount: number;
+  singleExpenses: any[];
+  lastInstallments: any[];
+  allInstallments: any[];
+  totalExpenses: number;
+  totalRevenue: number;
+}) {
+  const {
+    queryType,
+    customPrompt = '',
+    monthName,
+    singleExpensesTotal,
+    lastInstallmentsTotal,
+    combinedTotal,
+    allInstallmentsTotal,
+    singleExpensesCount,
+    lastInstallmentsCount,
+    combinedCount,
+    allInstallmentsCount,
+    singleExpenses,
+    lastInstallments,
+    allInstallments,
+  } = params;
+
+  const formatBRL = (val: number) =>
+    `R$ ${(val || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const promptLower = (customPrompt || '').toLowerCase();
+
+  // Se for consulta personalizada, tenta identificar intenção por palavras-chave
+  let effectiveType = queryType;
+  if (effectiveType === 'CUSTOM') {
+    if (promptLower.includes('vista') || promptLower.includes('única') || promptLower.includes('unica')) {
+      if (promptLower.includes('última') || promptLower.includes('ultimas') || promptLower.includes('fim')) {
+        effectiveType = 'COMBINED';
+      } else {
+        effectiveType = 'SINGLE';
+      }
+    } else if (promptLower.includes('última') || promptLower.includes('ultimas') || promptLower.includes('finaliza') || promptLower.includes('encerra') || promptLower.includes('acaba')) {
+      effectiveType = 'LAST_INSTALLMENTS';
+    } else if (promptLower.includes('alívio') || promptLower.includes('alivio') || promptLower.includes('libera') || promptLower.includes('próximo mês') || promptLower.includes('proximo mes')) {
+      effectiveType = 'COMBINED';
+    } else if (promptLower.includes('todas as parcelas') || promptLower.includes('total de parcelas') || promptLower.includes('parcelas ativas')) {
+      effectiveType = 'ALL_INSTALLMENTS';
+    } else {
+      effectiveType = 'COMBINED';
+    }
+  }
+
+  if (effectiveType === 'SINGLE') {
+    return {
+      title: `Soma das Compras/Parcelas à Vista em ${monthName}`,
+      highlightValue: singleExpensesTotal,
+      formattedValue: formatBRL(singleExpensesTotal),
+      explanation: `Em ${monthName}, foram identificadas ${singleExpensesCount} despesa(s) à vista ou pontuais (sem parcelamento futuro), totalizando ${formatBRL(singleExpensesTotal)}.`,
+      breakdown: `${singleExpensesCount} despesa(s) à vista / parcela única.`,
+      nextMonthRelief: `Por serem despesas pontuais à vista, este montante de ${formatBRL(singleExpensesTotal)} não se repetirá automaticamente no próximo mês!`,
+      relevantExpenses: singleExpenses,
+      keyTakeaway: `Excelente controle: compras à vista mantêm seu fluxo de caixa livre de parcelamentos longos.`,
+      suggestedQuestions: [
+        'Qual a soma de últimas parcelas deste mês?',
+        'Qual a soma de últimas parcelas + compras à vista?',
+        'Qual o total de parcelas ativas no mês?',
+      ],
+    };
+  }
+
+  if (effectiveType === 'LAST_INSTALLMENTS') {
+    return {
+      title: `Soma das Últimas Parcelas em ${monthName}`,
+      highlightValue: lastInstallmentsTotal,
+      formattedValue: formatBRL(lastInstallmentsTotal),
+      explanation: `Em ${monthName}, ${lastInstallmentsCount} compra(s) parcelada(s) atingem a parcela final (ex: 3/3, 10/10), totalizando ${formatBRL(lastInstallmentsTotal)}.`,
+      breakdown: `${lastInstallmentsCount} compra(s) com quitação da última parcela neste mês.`,
+      nextMonthRelief: `Alívio garantido: no próximo mês, você terá ${formatBRL(lastInstallmentsTotal)} a menos em faturas de parcelamento!`,
+      relevantExpenses: lastInstallments,
+      keyTakeaway: `Excelente notícia! Ao quitar essas últimas parcelas, você libera limite de crédito e reduz seus custos fixos no mês seguinte.`,
+      suggestedQuestions: [
+        'Qual a soma das compras à vista?',
+        'Qual a soma de últimas parcelas + compras à vista?',
+        'Quais parcelas continuam ativas?',
+      ],
+    };
+  }
+
+  if (effectiveType === 'ALL_INSTALLMENTS') {
+    return {
+      title: `Total de Parcelas Ativas em ${monthName}`,
+      highlightValue: allInstallmentsTotal,
+      formattedValue: formatBRL(allInstallmentsTotal),
+      explanation: `Em ${monthName}, você possui ${allInstallmentsCount} despesa(s) parcelada(s) ativas, totalizando ${formatBRL(allInstallmentsTotal)}. Dentre elas, ${lastInstallmentsCount} são parcelas finais que encerram neste mês.`,
+      breakdown: `${allInstallmentsCount} parcelas vigentes no mês (${lastInstallmentsCount} finais e ${allInstallmentsCount - lastInstallmentsCount} em andamento).`,
+      nextMonthRelief: `Com o encerramento de ${lastInstallmentsCount} parcelas este mês (${formatBRL(lastInstallmentsTotal)}), suas parcelas no próximo mês cairão para cerca de ${formatBRL(allInstallmentsTotal - lastInstallmentsTotal)}.`,
+      relevantExpenses: allInstallments,
+      keyTakeaway: `Acompanhe suas parcelas para garantir que fiquem dentro de uma margem segura de até 30% da sua receita mensal.`,
+      suggestedQuestions: [
+        'Quais são as últimas parcelas?',
+        'Qual a soma de últimas parcelas + compras à vista?',
+        'Qual a soma das compras à vista?',
+      ],
+    };
+  }
+
+  // Padrão / COMBINED: Soma de Últimas Parcelas + Compras à Vista
+  return {
+    title: `Soma de Últimas Parcelas + Compras à Vista em ${monthName}`,
+    highlightValue: combinedTotal,
+    formattedValue: formatBRL(combinedTotal),
+    explanation: `Em ${monthName}, a soma das últimas parcelas que encerram (${lastInstallmentsCount} itens = ${formatBRL(lastInstallmentsTotal)}) com as compras à vista (${singleExpensesCount} itens = ${formatBRL(singleExpensesTotal)}) totaliza ${formatBRL(combinedTotal)}.`,
+    breakdown: `${lastInstallmentsCount} última(s) parcela(s) (${formatBRL(lastInstallmentsTotal)}) + ${singleExpensesCount} compra(s) à vista (${formatBRL(singleExpensesTotal)}).`,
+    nextMonthRelief: `Este montante de ${formatBRL(combinedTotal)} deixará de existir no próximo mês! Seu orçamento terá um alívio financeiro imediato desse mesmo valor.`,
+    relevantExpenses: [...lastInstallments, ...singleExpenses],
+    keyTakeaway: `Esse valor representa o total 'não-recorrente' do mês: contas que foram quitadas agora e que liberarão sua renda para sobrar mais dinheiro no próximo mês.`,
+    suggestedQuestions: [
+      'Ver apenas a soma de últimas parcelas',
+      'Ver apenas a soma das compras à vista',
+      'Qual o total de parcelas ativas no mês?',
+    ],
+  };
+}
+
 startServer();
+

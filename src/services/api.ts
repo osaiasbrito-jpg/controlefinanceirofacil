@@ -306,4 +306,27 @@ export async function deleteAbatimentoFromPostgres(id: string, userId: string, i
   }
 }
 
+import { AiQuickQueryParams } from '../types';
+
+// Consultar Assistente Financeiro com Inteligência Artificial Gemini
+export async function queryFinancialAssistant(payload: AiQuickQueryParams) {
+  try {
+    const res = await resilientFetch('/api/gemini/quick-query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Erro HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    return data;
+  } catch (error: any) {
+    console.error('Erro ao consultar I.A Financeira:', error);
+    throw error;
+  }
+}
+
+
 

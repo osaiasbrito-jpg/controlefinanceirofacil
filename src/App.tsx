@@ -26,6 +26,7 @@ import { CategoryModal } from './components/modals/CategoryModal';
 import { ConfirmDeleteModal } from './components/modals/ConfirmDeleteModal';
 import { PaymentUnlockModal } from './components/modals/PaymentUnlockModal';
 import { ImportExcelModal } from './components/modals/ImportExcelModal';
+import { AiAssistantModal } from './components/modals/AiAssistantModal';
 
 import { ActiveTab, Expense, Salary, ExtraIncome, CreditCard } from './types';
 import { Clock, Crown, Lock, Sparkles, AlertCircle } from 'lucide-react';
@@ -71,6 +72,10 @@ const MainLayout: React.FC = () => {
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [importExcelModalOpen, setImportExcelModalOpen] = useState(false);
+  const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiModalInitialType, setAiModalInitialType] = useState<
+    'SINGLE' | 'LAST_INSTALLMENTS' | 'COMBINED' | 'ALL_INSTALLMENTS' | 'CUSTOM'
+  >('COMBINED');
 
   // Delete confirmation modal state
   const [deleteModalState, setDeleteModalState] = useState<{
@@ -304,6 +309,10 @@ const MainLayout: React.FC = () => {
             onOpenIncomeModal={() => handleOpenIncomeModal()}
             onOpenSalaryModal={() => handleOpenSalaryModal()}
             onOpenImportExcel={() => setImportExcelModalOpen(true)}
+            onOpenAiModal={() => {
+              setAiModalInitialType('COMBINED');
+              setAiModalOpen(true);
+            }}
             onToggleMobileMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
           />
 
@@ -316,6 +325,10 @@ const MainLayout: React.FC = () => {
                 onEditExpense={handleOpenExpenseModal}
                 onDeleteExpense={handleDeleteExpense}
                 onOpenCardModal={() => handleOpenCardModal()}
+                onOpenAiModal={(type) => {
+                  setAiModalInitialType(type || 'COMBINED');
+                  setAiModalOpen(true);
+                }}
               />
             )}
 
@@ -353,6 +366,10 @@ const MainLayout: React.FC = () => {
                 onOpenExpenseModal={handleOpenExpenseModal}
                 onDeleteExpense={handleDeleteExpense}
                 onOpenImportExcel={() => setImportExcelModalOpen(true)}
+                onOpenAiModal={(type) => {
+                  setAiModalInitialType(type || 'COMBINED');
+                  setAiModalOpen(true);
+                }}
               />
             )}
 
@@ -464,6 +481,12 @@ const MainLayout: React.FC = () => {
       <ImportExcelModal
         isOpen={importExcelModalOpen}
         onClose={() => setImportExcelModalOpen(false)}
+      />
+
+      <AiAssistantModal
+        isOpen={aiModalOpen}
+        onClose={() => setAiModalOpen(false)}
+        initialQueryType={aiModalInitialType}
       />
     </div>
   );
